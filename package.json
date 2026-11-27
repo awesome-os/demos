@@ -1,0 +1,17 @@
+{
+  "name": "@awesome-os/demos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "BSD-3-Clause",
+  "description": "Sparse no-cone monorepo of standalone Awesome-OS architecture demos (PDP-11/40, Phosphor 3D Task Manager, VisBuf/ORCA/3DGS Graphics)",
+  "homepage": "https://awesome-os.github.io/demos/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awesome-os/demos.git"
+  },
+  "scripts": {
+    "test": "node --test scripts/demos.test.mts",
+    "sparse": "node scripts/sparse-checkout.mts"
+  }
+}

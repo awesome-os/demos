@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B8G PDP-11/40 Hardware-Emulated Architecture Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #030d05; color: #b7ffd0; }
+    b8g-pdp11-taskmgr { display: block; min-height: 100vh; padding: 20px; background: var(--bg); color: var(--fg); }
+    b8g-pdp11-taskmgr[data-theme="dark"] { --bg:#0a0f1a; --panel:#111827; --fg:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; --warn:#fbbf24; --border:#1e293b; }
+    b8g-pdp11-taskmgr[data-theme="light"] { --bg:#edf2fa; --panel:#ffffff; --fg:#0f172a; --muted:#475569; --accent:#0e7490; --warn:#b45309; --border:#cbd5e1; }
+    b8g-pdp11-taskmgr[data-theme="phosphor-green"] { --bg:#030d05; --panel:#071a0b; --fg:#b7ffd0; --muted:#4ea86d; --accent:#39ff80; --warn:#b4ff4d; --border:#134022; }
+    b8g-pdp11-taskmgr[data-theme="phosphor-amber"] { --bg:#0f0803; --panel:#1c1005; --fg:#ffe2ad; --muted:#b8833c; --accent:#ffb020; --warn:#ff7b24; --border:#472a0b; }
+    .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+    .brand { font-size: 1.08rem; font-weight: 700; color: var(--accent); letter-spacing: 0.04em; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .back-link { color: var(--muted); text-decoration: none; font-size: 0.82rem; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; }
+    .back-link:hover { color: var(--accent); border-color: var(--accent); }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button.ctrl, select.ctrl { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 0.82rem; cursor: pointer; }
+    button.ctrl:hover { border-color: var(--accent); color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .panel h2 { margin: 0 0 10px; font-size: 0.9rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+    .led-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+    .led-lbl { width: 64px; font-size: 0.76rem; color: var(--muted); }
+    .octal-val { width: 64px; font-weight: 700; color: var(--accent); }
+    .led-strip { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+    .led { width: 12px; height: 12px; border-radius: 50%; background: #261a1a; border: 1px solid var(--border); display: inline-block; }
+    .led.on { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+    .led-gap { margin-left: 6px; }
+    .sw-bank { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+    .sw-btn { width: 26px; height: 34px; border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 0.68rem; color: #fff; cursor: pointer; opacity: 0.78; }
+    .sw-btn.sw-magenta { background: #8f1d54; }
+    .sw-btn.sw-red { background: #9b2226; }
+    .sw-btn.up { opacity: 1; transform: translateY(-3px); box-shadow: 0 0 6px var(--warn); border-color: var(--warn); }
+    .reg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 0.84rem; }
+    .reg-cell { padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+    .uart-log { background: rgba(0,0,0,0.35); border: 1px solid var(--border); border-radius: 6px; padding: 10px; min-height: 92px; max-height: 180px; overflow-y: auto; white-space: pre-wrap; font-size: 0.82rem; color: var(--accent); }
+    .sliders { display: grid; gap: 8px; margin-top: 10px; font-size: 0.8rem; }
+    .slider-row { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 8px; }
+    canvas { width: 100%; height: 190px; border-radius: 8px; border: 1px solid var(--border); display: block; background: rgba(0,0,0,0.28); }
+    .wasi-badge { font-size: 0.76rem; color: var(--muted); margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td { text-align: left; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+  <b8g-pdp11-taskmgr
+    data-theme="phosphor-amber"
+    data-abi-magic="0x31315044"
+    data-abi-version="1"
+    data-v3-magic="0x33564742">
+    <div class="topbar">
+      <div class="brand">
+        <a class="back-link" href="../../">&larr; Demos Hub</a>
+        <span>DEC PDP-11/40 :: B8G-ABI TASK MANAGER COCKPIT</span>
+      </div>
+      <div class="controls">
+        <button type="button" class="ctrl" data-action="step">Step</button>
+        <button type="button" class="ctrl" data-action="run50">Run 50</button>
+        <button type="button" class="ctrl" data-action="runall">Run Monitor</button>
+        <button type="button" class="ctrl" data-action="reset">Reset &amp; Sample</button>
+        <select class="ctrl" data-action="theme" aria-label="Phosphor Theme">
+          <option value="dark">Obsidian Dark</option>
+          <option value="light">Blueprint Light</option>
+          <option value="phosphor-green">P31 Phosphor Green</option>
+          <option value="phosphor-amber" selected>P3 Amber CRT</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>PDP-11/70 Console Front Panel</h2>
+        <div class="led-row"><span class="led-lbl">ADDR/PC</span><code class="octal-val" data-octal="pc">001000</code><div class="led-strip" data-strip="pc"></div></div>
+        <div class="led-row"><span class="led-lbl">DATA</span><code class="octal-val" data-octal="data">000000</code><div class="led-strip" data-strip="data"></div></div>
+        <div class="led-row"><span class="led-lbl">SWITCH</span><code class="octal-val" data-octal="sw">125252</code><div class="led-strip" data-strip="sw"></div></div>
+        <div class="sw-bank" data-sw-bank></div>
+        <div class="wasi-badge" data-wasm-status>WASI Reactor: checking ./b8g-pdp11.wasm ...</div>
+      </section>
+
+      <section class="panel">
+        <h2>3D Phosphor Cockpit Preview</h2>
+        <canvas width="480" height="220" data-cockpit-canvas></canvas>
+        <p data-status style="margin:10px 0 0;font-size:0.82rem;">PSW=000000 · N=0 Z=0 V=0 C=0 · Cycles=0 · Halted=false</p>
+      </section>
+
+      <section class="panel">
+        <h2>Octal Registers &amp; KL11 Serial Console</h2>
+        <div class="reg-grid" style="margin-bottom:10px;">
+          <div class="reg-cell">R0 <strong data-reg="0">000000</strong></div>
+          <div class="reg-cell">R1 <strong data-reg="1">000000</strong></div>
+          <div class="reg-cell">R2 <strong data-reg="2">000000</strong></div>
+          <div class="reg-cell">R3 <strong data-reg="3">000000</strong></div>
+          <div class="reg-cell">R4 <strong data-reg="4">000000</strong></div>
+          <div class="reg-cell">R5 <strong data-reg="5">000000</strong></div>
+          <div class="reg-cell">SP <strong data-reg="6">000700</strong></div>
+          <div class="reg-cell">PC <strong data-reg="7">001000</strong></div>
+        </div>
+        <pre class="uart-log" data-uart></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Synced Task Manager MMIO (0177000..0177010)</h2>
+        <table>
+          <thead><tr><th>MMIO</th><th>Metric</th><th>Live Value</th></tr></thead>
+          <tbody>
+            <tr><td><code>0177000</code></td><td>CPU Total</td><td data-mmio-cpu>34.5%</td></tr>
+            <tr><td><code>0177002</code></td><td>Memory Pressure</td><td data-mmio-mem>61.2%</td></tr>
+            <tr><td><code>0177004</code></td><td>Processes</td><td data-mmio-proc>48</td></tr>
+            <tr><td><code>0177010</code></td><td>Sample Seq</td><td data-mmio-seq>1</td></tr>
+          </tbody>
+        </table>
+        <div class="sliders">
+          <label class="slider-row"><span>CPU %</span><input type="range" min="1" max="99" value="35" data-slider="cpu" /><span data-slider-val="cpu">35.0%</span></label>
+          <label class="slider-row"><span>Memory %</span><input type="range" min="5" max="99" value="61" data-slider="mem" /><span data-slider-val="mem">61.0%</span></label>
+          <label class="slider-row"><span>Processes</span><input type="range" min="1" max="250" value="48" data-slider="proc" /><span data-slider-val="proc">48</span></label>
+        </div>
+      </section>
+    </div>
+  </b8g-pdp11-taskmgr>
+
+  <script type="module">
+    const PSW_C = 1, PSW_V = 2, PSW_Z = 4, PSW_N = 8;
+    const oct6 = (n) => ((n & 0xffff) >>> 0).toString(8).padStart(6, '0');
+
+    // Clean-room PDP-11/40 Telemetry Monitor program (assembled at 001000)
+    // Reads MMIO 0177000..0177010, writes KL11 UART 0177566, updates 0177570 display, HALTs.
+    const DOP = { MOV:0o010000, MOVB:0o110000, CMP:0o020000, ADD:0o060000, SUB:0o160000 };
+    const SOP = { INC:0o005200 };
+    const BOP = { BR:0o000400, BEQ:0o001400, BLT:0o002400 };
+    function parseLit(raw, labels, allowU = false) {
+      const s = raw.trim();
+      if (s in labels) return labels[s];
+      if (/^[0-7]+$/.test(s)) return parseInt(s, 8) & 0xffff;
+      if (allowU) return 0;
+      throw new Error('Bad literal ' + raw);
+    }
+    function parseReg(raw) {
+      const u = raw.trim().toUpperCase();
+      if (u === 'SP') return 6;
+      if (u === 'PC') return 7;
+      return Number(u.slice(1));
+    }
+    function encOp(raw, pcAfter, labels, allowU = false) {
+      const op = raw.trim();
+      const u = op.toUpperCase();
+      if (/^(R[0-7]|SP|PC)$/.test(u)) return { code: parseReg(u) };
+      if (op.startsWith('#')) return { code: 0o27, extra: parseLit(op.slice(1), labels, allowU) };
+      if (op.startsWith('@#')) return { code: 0o37, extra: parseLit(op.slice(2), labels, allowU) };
+      const m = /^\((R[0-7]|SP|PC)\)\+$/i.exec(op);
+      if (m) return { code: 0o20 | parseReg(m[1]) };
+      return { code: 0o67, extra: (parseLit(op, labels, allowU) - (pcAfter + 2)) & 0xffff };
+    }
+    function ascizWords(arg) {
+      const str = arg.trim().slice(1, -1);
+      const b = [];
+      for (let i = 0; i < str.length; i++) b.push(str.charCodeAt(i) & 0xff);
+      b.push(0);
+      if (b.length & 1) b.push(0);
+      const w = [];
+      for (let i = 0; i < b.length; i += 2) w.push(b[i] | (b[i + 1] << 8));
+      return w;
+    }
+    function assembleMonitor() {
+      const src = [
+        'START:',
+        'MOV #S_HDR, R5', 'JSR PC, PUTS', 'MOV @#177010, R0', 'JSR PC, PR3',
+        'MOV #S_CPU, R5', 'JSR PC, PUTS', 'MOV @#177000, R0', 'JSR PC, PRDEC1',
+        'MOV #S_MEM, R5', 'JSR PC, PUTS', 'MOV @#177002, R0', 'JSR PC, PRDEC1',
+        'MOV #S_PROC, R5', 'JSR PC, PUTS', 'MOV @#177004, R0', 'JSR PC, PR3',
+        'MOVB #15, @#177566', 'MOVB #12, @#177566',
+        'MOV @#177000, R0', 'MOV @#177002, R1', 'MOV @#177004, R2',
+        'MOV @#177006, R3', 'MOV @#177010, R4', 'MOV R0, R5', 'ADD R1, R5',
+        'MOV R0, @#177570', 'HALT',
+        'PUTS:', 'MOVB (R5)+, R1', 'BEQ PUTS_DONE', 'MOVB R1, @#177566', 'BR PUTS',
+        'PUTS_DONE:', 'RTS PC',
+        'PR3:', 'JSR PC, DIV100', 'ADD #60, R0', 'MOVB R0, @#177566', 'RTS PC',
+        'PRDEC1:', 'JSR PC, DIV100', 'MOVB #56, @#177566', 'ADD #60, R0', 'MOVB R0, @#177566', 'MOVB #45, @#177566', 'RTS PC',
+        'DIV100:', 'MOV #60, R1', 'CMP R0, #764', 'BLT D100_2A', 'SUB #764, R0', 'ADD #5, R1',
+        'D100_2A:', 'CMP R0, #310', 'BLT D100_2B', 'SUB #310, R0', 'ADD #2, R1',
+        'D100_2B:', 'CMP R0, #310', 'BLT D100_1', 'SUB #310, R0', 'ADD #2, R1',
+        'D100_1:', 'CMP R0, #144', 'BLT D100_OUT', 'SUB #144, R0', 'INC R1',
+        'D100_OUT:', 'MOVB R1, @#177566',
+        'DIV10:', 'MOV #60, R1', 'CMP R0, #62', 'BLT D10_2A', 'SUB #62, R0', 'ADD #5, R1',
+        'D10_2A:', 'CMP R0, #24', 'BLT D10_2B', 'SUB #24, R0', 'ADD #2, R1',
+        'D10_2B:', 'CMP R0, #24', 'BLT D10_1', 'SUB #24, R0', 'ADD #2, R1',
+        'D10_1:', 'CMP R0, #12', 'BLT D10_OUT', 'SUB #12, R0', 'INC R1',
+        'D10_OUT:', 'MOVB R1, @#177566', 'RTS PC',
+        'S_HDR: .ASCIZ "PDP11 SEQ="', 'S_CPU: .ASCIZ " CPU="', 'S_MEM: .ASCIZ " MEM="', 'S_PROC: .ASCIZ " PROC="',
+      ];
+      const labels = {};
+      let pc = 0o1000;
+      for (const line of src) {
+        let s = line.trim();
+        const lm = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(s);
+        if (lm) { labels[lm[1]] = pc; s = lm[2].trim(); if (!s) continue; }
+        const sp = s.search(/\s/);
+        const op = (sp < 0 ? s : s.slice(0, sp)).toUpperCase();
+        const rest = sp < 0 ? '' : s.slice(sp + 1).trim();
+        if (op === '.ASCIZ') pc += ascizWords(rest).length * 2;
+        else if (op === 'HALT' || op === 'RTS' || op in BOP) pc += 2;
+        else if (op === 'JSR') pc += 2 + (encOp(rest.split(',')[1], pc + 2, {}, true).extra !== undefined ? 2 : 0);
+        else if (op in SOP) pc += 2 + (encOp(rest, pc + 2, {}, true).extra !== undefined ? 2 : 0);
+        else if (op in DOP) {
+          const [a, b] = rest.split(',');
+          const s1 = encOp(a, pc + 2, {}, true);
+          const p2 = pc + 2 + (s1.extra !== undefined ? 2 : 0);
+          const d1 = encOp(b, p2, {}, true);
+          pc = p2 + (d1.extra !== undefined ? 2 : 0);
+        }
+      }
+      const words = [];
+      pc = 0o1000;
+      for (const line of src) {
+        let s = line.trim();
+        const lm = /^([A-Za-z0-9_]+):\s*(.*)$/.exec(s);
+        if (lm) { s = lm[2].trim(); if (!s) continue; }
+        const sp = s.search(/\s/);
+        const op = (sp < 0 ? s : s.slice(0, sp)).toUpperCase();
+        const rest = sp < 0 ? '' : s.slice(sp + 1).trim();
+        if (op === '.ASCIZ') { const w = ascizWords(rest); words.push(...w); pc += w.length * 2; }
+        else if (op === 'HALT') { words.push(0); pc += 2; }
+        else if (op === 'RTS') { words.push(0o200 | parseReg(rest)); pc += 2; }
+        else if (op in BOP) { words.push(BOP[op] | (((parseLit(rest, labels) - (pc + 2)) >> 1) & 0xff)); pc += 2; }
+        else if (op === 'JSR') {
+          const [r, d] = rest.split(',');
+          const dst = encOp(d, pc + 2, labels);
+          words.push(0o4000 | (parseReg(r) << 6) | dst.code); pc += 2;
+          if (dst.extra !== undefined) { words.push(dst.extra); pc += 2; }
+        } else if (op in SOP) {
+          const dst = encOp(rest, pc + 2, labels);
+          words.push(SOP[op] | dst.code); pc += 2;
+          if (dst.extra !== undefined) { words.push(dst.extra); pc += 2; }
+        } else if (op in DOP) {
+          const [a, b] = rest.split(',');
+          const s1 = encOp(a, pc + 2, labels);
+          const p2 = pc + 2 + (s1.extra !== undefined ? 2 : 0);
+          const d1 = encOp(b, p2, labels);
+          words.push(DOP[op] | (s1.code << 6) | d1.code); pc += 2;
+          if (s1.extra !== undefined) { words.push(s1.extra); pc += 2; }
+          if (d1.extra !== undefined) { words.push(d1.extra); pc += 2; }
+        }
+      }
+      return words;
+    }
+
+    const MONITOR_WORDS = assembleMonitor();
+
+    class BrowserPdp11 {
+      constructor() {
+        this.ram = new Uint8Array(65536);
+        this.regs = new Uint16Array(8);
+        this.mmio = new Uint16Array(8);
+        this.switchReg = 0o125252;
+        this.displayReg = 0;
+        this.psw = 0;
+        this.halted = false;
+        this.cycles = 0;
+        this.txText = '';
+        this.seq = 1;
+        this.loadAndReset(350, 610, 48);
+      }
+      loadAndReset(cpuX10, memX10, proc) {
+        this.ram.fill(0);
+        this.regs.fill(0);
+        this.regs[6] = 0o700;
+        this.regs[7] = 0o1000;
+        this.psw = 0;
+        this.halted = false;
+        this.cycles = 0;
+        this.displayReg = 0;
+        for (let i = 0; i < MONITOR_WORDS.length; i++) this.w16(0o1000 + i * 2, MONITOR_WORDS[i]);
+        this.mmio[0] = cpuX10; this.mmio[1] = memX10; this.mmio[2] = proc; this.mmio[3] = 420; this.mmio[4] = this.seq;
+      }
+      r16(a) {
+        const e = a & 0xfffe;
+        if (e >= 0o177000 && e < 0o177020) return this.mmio[(e - 0o177000) >> 1];
+        if (e === 0o177564) return 0x80;
+        if (e === 0o177570) return this.switchReg;
+        return this.ram[e] | (this.ram[(e + 1) & 0xffff] << 8);
+      }
+      r8(a) {
+        const p = a & 0xffff;
+        if (p >= 0o177000) return (p & 1) ? (this.r16(p) >> 8) & 0xff : this.r16(p) & 0xff;
+        return this.ram[p];
+      }
+      w16(a, v) {
+        const e = a & 0xfffe;
+        const val = v & 0xffff;
+        if (e === 0o177566) { this.txText += String.fromCharCode(val & 0xff); return; }
+        if (e === 0o177570) { this.displayReg = val; return; }
+        this.ram[e] = val & 0xff;
+        this.ram[(e + 1) & 0xffff] = (val >> 8) & 0xff;
+      }
+      w8(a, v) {
+        const p = a & 0xffff;
+        const b = v & 0xff;
+        if ((p & 0xfffe) === 0o177566) { if ((p & 1) === 0) this.txText += String.fromCharCode(b); return; }
+        this.ram[p] = b;
+      }
+      fetch() { const v = this.r16(this.regs[7]); this.regs[7] = (this.regs[7] + 2) & 0xffff; return v; }
+      resolve(f, isB) {
+        const m = (f >> 3) & 7, r = f & 7, st = isB && r < 6 ? 1 : 2;
+        if (m === 0) return { isReg: true, r, addr: 0 };
+        if (m === 1) return { isReg: false, r, addr: this.regs[r] };
+        if (m === 2) { const a = this.regs[r]; this.regs[r] = (a + st) & 0xffff; return { isReg: false, r, addr: a }; }
+        if (m === 3) { const p = this.regs[r]; this.regs[r] = (p + 2) & 0xffff; return { isReg: false, r, addr: this.r16(p) }; }
+        if (m === 6) { const disp = this.fetch(); return { isReg: false, r, addr: (this.regs[r] + disp) & 0xffff }; }
+        return { isReg: false, r, addr: 0 };
+      }
+      rd(o, isB) { return o.isReg ? (isB ? this.regs[o.r] & 0xff : this.regs[o.r]) : (isB ? this.r8(o.addr) : this.r16(o.addr)); }
+      wr(o, v, isB, sx) {
+        if (o.isReg) {
+          if (isB) { const b = v & 0xff; this.regs[o.r] = sx && (b & 0x80) ? 0xff00 | b : (this.regs[o.r] & 0xff00) | b; }
+          else this.regs[o.r] = v & 0xffff;
+        } else if (isB) this.w8(o.addr, v);
+        else this.w16(o.addr, v);
+      }
+      nz(v, isB, keepC, c, vw) {
+        const m = isB ? v & 0xff : v & 0xffff, msb = isB ? 0x80 : 0x8000;
+        let p = this.psw & ~(PSW_N | PSW_Z | PSW_V | (keepC ? 0 : PSW_C));
+        if (m & msb) p |= PSW_N;
+        if (m === 0) p |= PSW_Z;
+        if (vw) p |= PSW_V;
+        if (!keepC && c) p |= PSW_C;
+        this.psw = p;
+      }
+      step() {
+        if (this.halted) return false;
+        const op = this.fetch();
+        this.cycles++;
+        if (op === 0) { this.halted = true; return false; }
+        if ((op & 0xfff8) === 0o200) {
+          const r = op & 7;
+          this.regs[7] = this.regs[r];
+          this.regs[r] = this.r16(this.regs[6]);
+          this.regs[6] = (this.regs[6] + 2) & 0xffff;
+          return true;
+        }
+        if ((op & 0xfe00) === 0o4000) {
+          const r = (op >> 6) & 7, d = this.resolve(op & 0x3f, false);
+          this.regs[6] = (this.regs[6] - 2) & 0xffff;
+          this.w16(this.regs[6], this.regs[r]);
+          this.regs[r] = this.regs[7];
+          this.regs[7] = d.addr;
+          return true;
+        }
+        const hi = (op >> 8) & 0xff;
+        if (hi === 1 || hi === 3 || hi === 5) {
+          const n = !!(this.psw & PSW_N), z = !!(this.psw & PSW_Z), v = !!(this.psw & PSW_V);
+          const take = hi === 1 || (hi === 3 && z) || (hi === 5 && n !== v);
+          if (take) { const d = op & 0xff; this.regs[7] = (this.regs[7] + ((d & 0x80 ? d - 256 : d) * 2)) & 0xffff; }
+          return true;
+        }
+        if (((op >> 6) & 0x1ff) === 0x2a) {
+          const d = this.resolve(op & 0x3f, false);
+          const res = (this.rd(d, false) + 1) & 0xffff;
+          this.wr(d, res, false, false);
+          this.nz(res, false, true, false, res === 0x8000);
+          return true;
+        }
+        const g = (op >> 12) & 0xf, b = g & 7, isB = g >= 9 && g <= 13 && g !== 14;
+        const srcO = this.resolve((op >> 6) & 0x3f, isB), dstO = this.resolve(op & 0x3f, isB);
+        const s = this.rd(srcO, isB);
+        if (b === 1) { this.wr(dstO, s, isB, true); this.nz(s, isB, true, false, false); return true; }
+        const d = this.rd(dstO, isB);
+        if (b === 2) { const res = (s - d) & 0xffff; this.nz(res, false, false, s < d, (((s ^ d) & (s ^ res)) & 0x8000) !== 0); return true; }
+        if (g === 6) { const sum = d + s, res = sum & 0xffff; this.wr(dstO, res, false, false); this.nz(res, false, false, sum > 0xffff, ((~(s ^ d) & (s ^ res)) & 0x8000) !== 0); return true; }
+        if (g === 14) { const diff = d - s, res = diff & 0xffff; this.wr(dstO, res, false, false); this.nz(res, false, false, d < s, (((d ^ s) & (d ^ res)) & 0x8000) !== 0); return true; }
+        this.halted = true;
+        return false;
+      }
+    }
+
+    class B8gPdp11TaskMgrElement extends HTMLElement {
+      connectedCallback() {
+        this.setAttribute('data-hydrated', 'true');
+        const vm = new BrowserPdp11();
+        const buildLeds = (stripName) => {
+          const host = this.querySelector('[data-strip="' + stripName + '"]');
+          if (!host) return;
+          for (let bit = 15; bit >= 0; bit--) {
+            const sp = document.createElement('span');
+            sp.className = 'led' + ([14,11,8,5,2].includes(bit) ? ' led-gap' : '');
+            sp.setAttribute('data-led', stripName + '-' + bit);
+            host.appendChild(sp);
+          }
+        };
+        ['pc', 'data', 'sw'].forEach(buildLeds);
+
+        const swBank = this.querySelector('[data-sw-bank]');
+        for (let bit = 15; bit >= 0; bit--) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          const odd = Math.floor((bit + 2) / 3) % 2 === 1;
+          btn.className = 'sw-btn ' + (odd ? 'sw-magenta' : 'sw-red');
+          btn.setAttribute('data-sw-bit', String(bit));
+          btn.innerHTML = '<span>' + bit + '</span>';
+          btn.addEventListener('click', () => {
+            vm.switchReg ^= (1 << bit);
+            vm.displayReg = vm.regs[0] ^ vm.switchReg;
+            render();
+          });
+          swBank?.appendChild(btn);
+        }
+
+        const canvas = this.querySelector('[data-cockpit-canvas]');
+        const ctx = canvas?.getContext('2d');
+
+        const draw3dCockpit = () => {
+          if (!ctx || !canvas) return;
+          const style = getComputedStyle(this);
+          const bg = style.getPropertyValue('--bg').trim() || '#0f0803';
+          const accent = style.getPropertyValue('--accent').trim() || '#ffb020';
+          const warn = style.getPropertyValue('--warn').trim() || '#ff7b24';
+          const w = canvas.width, h = canvas.height;
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          // Isometric PDP-11/70 Cabinet + LED rows + R0..R5 Telemetry Pillars
+          ctx.fillStyle = '#1b1d24';
+          ctx.fillRect(22, 24, 240, 128);
+          ctx.fillStyle = '#9e1c52';
+          ctx.fillRect(22, 24, 240, 14);
+          ctx.fillStyle = '#f8fafc';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText('DEC PDP-11/40 :: B8G-ABI', 30, 34);
+
+          const pc = vm.regs[7];
+          const dt = vm.displayReg || vm.regs[0];
+          for (let bit = 15; bit >= 0; bit--) {
+            const idx = 15 - bit;
+            const x = 34 + idx * 13 + Math.floor((idx + 2) / 3) * 3;
+            ctx.fillStyle = (pc & (1 << bit)) ? accent : '#311a1a';
+            ctx.beginPath(); ctx.arc(x, 60, 4, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = (dt & (1 << bit)) ? warn : '#311a1a';
+            ctx.beginPath(); ctx.arc(x, 86, 4, 0, Math.PI * 2); ctx.fill();
+            const up = (vm.switchReg & (1 << bit)) !== 0;
+            ctx.fillStyle = up ? '#fbbf24' : (Math.floor((bit + 2) / 3) % 2 === 1 ? '#8f1d54' : '#9b2226');
+            ctx.fillRect(x - 4, up ? 112 : 120, 8, up ? 18 : 12);
+          }
+
+          // R0..R5 + CPU/MEM 3D isometric bars on right
+          const bars = [
+            { label: 'CPU', val: vm.mmio[0] / 1000, col: accent },
+            { label: 'MEM', val: vm.mmio[1] / 1000, col: warn },
+            { label: 'PRC', val: Math.min(1, vm.mmio[2] / 250), col: '#38bdf8' },
+            { label: 'R0', val: Math.min(1, vm.regs[0] / 1000), col: accent },
+            { label: 'R5', val: Math.min(1, vm.regs[5] / 2000), col: '#c084fc' },
+          ];
+          bars.forEach((b, i) => {
+            const bx = 290 + i * 36;
+            const bh = 18 + Math.max(0, Math.min(1, b.val)) * 124;
+            const by = 182 - bh;
+            ctx.fillStyle = b.col;
+            ctx.fillRect(bx, by, 22, bh);
+            ctx.fillStyle = '#cbd5e1';
+            ctx.font = '10px monospace';
+            ctx.fillText(b.label, bx + 1, 198);
+          });
+        };
+
+        const render = () => {
+          const pc = vm.regs[7], dt = vm.displayReg || vm.regs[0], sw = vm.switchReg;
+          const setRow = (p, v) => {
+            const o = this.querySelector('[data-octal="' + p + '"]');
+            if (o) o.textContent = oct6(v);
+            for (let b = 0; b < 16; b++) {
+              this.querySelector('[data-led="' + p + '-' + b + '"]')?.classList.toggle('on', (v & (1 << b)) !== 0);
+            }
+          };
+          setRow('pc', pc); setRow('data', dt); setRow('sw', sw);
+          this.querySelectorAll('[data-sw-bit]').forEach((b) => {
+            const bit = Number(b.getAttribute('data-sw-bit'));
+            b.classList.toggle('up', (sw & (1 << bit)) !== 0);
+          });
+          for (let r = 0; r < 8; r++) {
+            const el = this.querySelector('[data-reg="' + r + '"]');
+            if (el) el.textContent = oct6(vm.regs[r]);
+          }
+          const st = this.querySelector('[data-status]');
+          if (st) {
+            const n = vm.psw & PSW_N ? 1 : 0, z = vm.psw & PSW_Z ? 1 : 0, v = vm.psw & PSW_V ? 1 : 0, c = vm.psw & PSW_C ? 1 : 0;
+            st.textContent = 'PSW=' + oct6(vm.psw) + ' · N=' + n + ' Z=' + z + ' V=' + v + ' C=' + c + ' · Cycles=' + vm.cycles + ' · Halted=' + vm.halted;
+          }
+          const u = this.querySelector('[data-uart]');
+          if (u) u.textContent = vm.txText || '(KL11 ready — click Run Monitor or Step)';
+          this.querySelector('[data-mmio-cpu]').textContent = (vm.mmio[0] / 10).toFixed(1) + '%';
+          this.querySelector('[data-mmio-mem]').textContent = (vm.mmio[1] / 10).toFixed(1) + '%';
+          this.querySelector('[data-mmio-proc]').textContent = String(vm.mmio[2]);
+          this.querySelector('[data-mmio-seq]').textContent = String(vm.mmio[4]);
+          draw3dCockpit();
+        };
+
+        const sampleFromSliders = (runFull) => {
+          const cpu = Number(this.querySelector('[data-slider="cpu"]').value);
+          const mem = Number(this.querySelector('[data-slider="mem"]').value);
+          const proc = Number(this.querySelector('[data-slider="proc"]').value);
+          this.querySelector('[data-slider-val="cpu"]').textContent = cpu.toFixed(1) + '%';
+          this.querySelector('[data-slider-val="mem"]').textContent = mem.toFixed(1) + '%';
+          this.querySelector('[data-slider-val="proc"]').textContent = String(proc);
+          vm.seq = (vm.seq % 999) + 1;
+          vm.loadAndReset(cpu * 10, mem * 10, proc);
+          if (runFull) { for (let i = 0; i < 400 && !vm.halted; i++) vm.step(); }
+          render();
+        };
+
+        this.querySelector('[data-action="step"]')?.addEventListener('click', () => { vm.step(); render(); });
+        this.querySelector('[data-action="run50"]')?.addEventListener('click', () => { for (let i = 0; i < 50 && !vm.halted; i++) vm.step(); render(); });
+        this.querySelector('[data-action="runall"]')?.addEventListener('click', () => { for (let i = 0; i < 400 && !vm.halted; i++) vm.step(); render(); });
+        this.querySelector('[data-action="reset"]')?.addEventListener('click', () => { vm.txText = ''; sampleFromSliders(true); });
+        this.querySelector('[data-action="theme"]')?.addEventListener('change', (ev) => {
+          if (ev.target?.value) { this.setAttribute('data-theme', ev.target.value); render(); }
+        });
+        this.querySelectorAll('[data-slider]').forEach((inp) => inp.addEventListener('input', () => sampleFromSliders(true)));
+
+        // Run initial monitor boot telemetry so KL11 shows output immediately
+        for (let i = 0; i < 400 && !vm.halted; i++) vm.step();
+        render();
+
+        // Validate bundled b8g-pdp11.wasm WASI reactor module
+        fetch('./b8g-pdp11.wasm')
+          .then((r) => r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))
+          .then((buf) => WebAssembly.compile(buf))
+          .then((mod) => {
+            const exports = WebAssembly.Module.exports(mod).map((e) => e.name).join(', ');
+            const badge = this.querySelector('[data-wasm-status]');
+            if (badge) badge.textContent = 'WASI Reactor Verified (' + exports + ')';
+          })
+          .catch(() => {
+            const badge = this.querySelector('[data-wasm-status]');
+            if (badge) badge.textContent = 'WASI Reactor: ./b8g-pdp11.wasm (TS Twin Active)';
+          });
+      }
+    }
+    if (!customElements.get('b8g-pdp11-taskmgr')) {
+      customElements.define('b8g-pdp11-taskmgr', B8gPdp11TaskMgrElement);
+    }
+  </script>
+</body>
+</html>

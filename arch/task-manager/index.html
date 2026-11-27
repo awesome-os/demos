@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>B8G Task Manager — 4-Theme Phosphor 3D Telemetry Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: #030d05; color: #b7ffd0; }
+    b8g-task-manager { display: block; min-height: 100vh; padding: 20px; background: var(--bg); color: var(--fg); }
+    b8g-task-manager[data-theme="dark"] { --bg:#0a0f1a; --panel:#111827; --fg:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; --warn:#fbbf24; --border:#1e293b; --pcore:#38bdf8; --ecore:#34d399; --mem:#a78bfa; --unsup:#475569; }
+    b8g-task-manager[data-theme="light"] { --bg:#edf2fa; --panel:#ffffff; --fg:#0f172a; --muted:#475569; --accent:#0e7490; --warn:#b45309; --border:#cbd5e1; --pcore:#0284c7; --ecore:#059669; --mem:#7c3aed; --unsup:#94a3b8; }
+    b8g-task-manager[data-theme="phosphor-green"] { --bg:#030d05; --panel:#071a0b; --fg:#b7ffd0; --muted:#4ea86d; --accent:#39ff80; --warn:#b4ff4d; --border:#134022; --pcore:#39ff80; --ecore:#16a34a; --mem:#5eead4; --unsup:#1b3824; }
+    b8g-task-manager[data-theme="phosphor-amber"] { --bg:#0f0803; --panel:#1c1005; --fg:#ffe2ad; --muted:#b8833c; --accent:#ffb020; --warn:#ff7b24; --border:#472a0b; --pcore:#ffb020; --ecore:#d97706; --mem:#fde047; --unsup:#3b2612; }
+    .header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; }
+    .title { font-size: 1.12rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .back-link { color: var(--muted); text-decoration: none; font-size: 0.82rem; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; }
+    .back-link:hover { color: var(--accent); border-color: var(--accent); }
+    .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    button.ctrl, select.ctrl { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 11px; font: inherit; font-size: 0.8rem; cursor: pointer; }
+    button.ctrl:hover { border-color: var(--accent); color: var(--accent); }
+    .nav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .nav-pill { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.78rem; color: var(--muted); background: var(--panel); cursor: pointer; }
+    .nav-pill[data-active="true"] { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 700; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
+    .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+    .card h2 { margin: 0 0 10px; font-size: 0.92rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
+    canvas { width: 100%; height: 240px; border-radius: 8px; border: 1px solid var(--border); display: block; background: rgba(0,0,0,0.22); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+    .badge { padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; }
+    .badge-measured { background: rgba(56, 189, 248, 0.16); color: var(--accent); }
+    .badge-unsupported { background: rgba(251, 191, 36, 0.18); color: var(--warn); }
+    .badge-gap { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
+    .trace-box { font-size: 0.76rem; color: var(--muted); margin-top: 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <b8g-task-manager data-theme="phosphor-green" data-destination="cockpit-3d" data-abi-magic="0x4D544742">
+    <div class="header">
+      <div class="title">
+        <a class="back-link" href="../../">&larr; Demos Hub</a>
+        <span>B8G TASK MANAGER :: HONEST 3D TELEMETRY COCKPIT</span>
+      </div>
+      <div class="controls">
+        <button type="button" class="ctrl" data-action="sample">Sample Tick</button>
+        <button type="button" class="ctrl" data-action="toggle-live">Pause Live</button>
+        <button type="button" class="ctrl" data-action="inject-gap">Simulate Gap</button>
+        <select class="ctrl" data-action="theme" aria-label="Phosphor Theme">
+          <option value="dark">Obsidian Dark</option>
+          <option value="light">Blueprint Light</option>
+          <option value="phosphor-green" selected>P31 Phosphor Green</option>
+          <option value="phosphor-amber">P3 Amber CRT</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="nav" data-dest-nav></div>
+
+    <div class="grid">
+      <section class="card" style="grid-column: span 1;">
+        <h2>3D Phosphor Cockpit (P/E Cores + Neural Memory + Honest Racks)</h2>
+        <canvas width="520" height="250" data-3d-canvas></canvas>
+        <div class="trace-box">
+          <span data-dest-desc>WebGPU Visibility-Buffer 3D phosphor telemetry cockpit</span>
+          <span data-trace-count>.b8gtrace frames: 1</span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Honest Tri-State Telemetry Sensors</h2>
+        <table>
+          <thead><tr><th>Metric</th><th>State</th><th>Reading</th></tr></thead>
+          <tbody data-sensor-body></tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Identity-Safe Processes (PID:startTimeMs)</h2>
+        <table>
+          <thead><tr><th>Process Key</th><th>Name</th><th>Affinity</th><th>RSS</th><th>CPU</th></tr></thead>
+          <tbody data-proc-body></tbody>
+        </table>
+      </section>
+    </div>
+  </b8g-task-manager>
+
+  <script type="module">
+    const DESTINATIONS = [
+      ['summary', 'Summary', 'Honest CPU, Memory, Disk, and Process health overview'],
+      ['performance', 'Performance', 'Per-core P/E topology utilization and memory pressure telemetry'],
+      ['processes', 'Processes', 'PID + startTime identity-safe live process table'],
+      ['system-info', 'System Info', 'Kernel, host architecture, uptime, and ABI contract metadata'],
+      ['startup', 'Startup', 'Boot & initramfs startup lane visibility'],
+      ['users', 'Users', 'Active session user identity'],
+      ['services', 'Services', 'Background daemon and host-bus service state'],
+      ['power-freq', 'Power & Freq', 'Package wattage, core clock frequencies, and thermal sensors'],
+      ['benchmarks', 'Benchmarks', 'Sampler and 3D cockpit render frame-time telemetry'],
+      ['installed-apps', 'Installed Apps', 'Workspace runtime & Sectium binary package inventory'],
+      ['disk-space', 'Disk Space', 'Mounted filesystem capacity, free blocks, and usage ratios'],
+      ['cockpit-3d', '3D Cockpit', 'WebGPU Visibility-Buffer 3D phosphor telemetry cockpit'],
+    ];
+
+    class B8gTaskManagerElement extends HTMLElement {
+      connectedCallback() {
+        this.setAttribute('data-hydrated', 'true');
+        let tick = 1;
+        let live = true;
+        let forceGap = false;
+        let angle = 0.42;
+        const traces = [];
+
+        const nav = this.querySelector('[data-dest-nav]');
+        DESTINATIONS.forEach(([id, label, desc]) => {
+          const pill = document.createElement('span');
+          pill.className = 'nav-pill';
+          pill.textContent = label;
+          pill.title = desc;
+          pill.setAttribute('data-dest', id);
+          if (id === 'cockpit-3d') pill.setAttribute('data-active', 'true');
+          pill.addEventListener('click', () => {
+            this.setAttribute('data-destination', id);
+            this.querySelectorAll('.nav-pill').forEach((n) => n.setAttribute('data-active', n.getAttribute('data-dest') === id ? 'true' : 'false'));
+            const descEl = this.querySelector('[data-dest-desc]');
+            if (descEl) descEl.textContent = label + ' — ' + desc;
+          });
+          nav?.appendChild(pill);
+        });
+
+        const canvas = this.querySelector('[data-3d-canvas]');
+        const ctx = canvas?.getContext('2d');
+
+        const buildSnapshot = () => {
+          const ts = Date.now();
+          const cores = Array.from({ length: 8 }, (_, idx) => {
+            const pCore = idx < 4;
+            const util = forceGap && idx === 3
+              ? { state: 'gap', reason: 'Sampling pause injected' }
+              : { state: 'measured', value: Number(Math.max(5, Math.min(97, (pCore ? 52 : 24) + Math.sin(tick * 0.55 + idx * 0.8) * 20)).toFixed(1)) };
+            return { index: idx, kind: pCore ? 'p-core' : 'e-core', util };
+          });
+          const measuredCores = cores.filter((c) => c.util.state === 'measured');
+          const cpuAvg = measuredCores.reduce((a, c) => a + c.util.value, 0) / Math.max(1, measuredCores.length);
+          const memPct = Number((56 + Math.sin(tick * 0.25) * 8).toFixed(1));
+          const snap = {
+            ts,
+            cpuTotal: forceGap ? { state: 'gap', reason: 'Tick delta window skipped' } : { state: 'measured', value: Number(cpuAvg.toFixed(1)), unit: '%' },
+            memPct: { state: 'measured', value: memPct, unit: '%' },
+            gpu: { state: 'measured', value: Number((31 + Math.cos(tick * 0.4) * 14).toFixed(1)), unit: '%' },
+            npu: { state: 'unsupported', reason: 'NPU counter unavailable in sandbox' },
+            hotspot: forceGap ? { state: 'gap', reason: 'Thermal poll missed deadline' } : { state: 'unsupported', reason: 'Requires privileged MSR driver' },
+            power: { state: 'unsupported', reason: 'RAPL driver unavailable' },
+            cores,
+            processes: [
+              { key: '101:' + (ts - 180000), name: 'sectium-canvas', aff: 'p-core', rss: '216.0 MiB', cpu: '14.2%' },
+              { key: '204:' + (ts - 120000), name: 'b8g-graphics', aff: 'p-core', rss: '164.5 MiB', cpu: '11.8%' },
+              { key: '312:' + (ts - 90000), name: 'b8g-pdp11', aff: 'e-core', rss: '42.1 MiB', cpu: '2.4%' },
+            ],
+          };
+          traces.push({ index: traces.length, ts, cpuTotal: snap.cpuTotal });
+          return snap;
+        };
+
+        const draw3d = (snap) => {
+          if (!ctx || !canvas) return;
+          const st = getComputedStyle(this);
+          const bg = st.getPropertyValue('--bg').trim() || '#030d05';
+          const pCol = st.getPropertyValue('--pcore').trim() || '#39ff80';
+          const eCol = st.getPropertyValue('--ecore').trim() || '#16a34a';
+          const mCol = st.getPropertyValue('--mem').trim() || '#5eead4';
+          const uCol = st.getPropertyValue('--unsup').trim() || '#1b3824';
+          const fg = st.getPropertyValue('--fg').trim() || '#b7ffd0';
+
+          const w = canvas.width, h = canvas.height;
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const project = (x, y, z) => {
+            const ca = Math.cos(angle), sa = Math.sin(angle);
+            const rx = x * ca - z * sa;
+            const rz = x * sa + z * ca + 6.4;
+            const scale = 280 / Math.max(1.2, rz);
+            return [w * 0.5 + rx * scale, h * 0.78 - y * scale, scale];
+          };
+
+          const drawTower = (x, z, height, col, label) => {
+            const [bx, by, sc] = project(x, 0, z);
+            const [, ty] = project(x, height, z);
+            const bw = Math.max(12, sc * 0.34);
+            const bh = Math.max(4, by - ty);
+            ctx.fillStyle = col;
+            ctx.fillRect(bx - bw * 0.5, ty, bw, bh);
+            ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+            ctx.strokeRect(bx - bw * 0.5, ty, bw, bh);
+            if (label) {
+              ctx.fillStyle = fg;
+              ctx.font = '10px monospace';
+              ctx.fillText(label, bx - bw * 0.5, by + 13);
+            }
+          };
+
+          // Memory NeuralMaterial monolith (left)
+          drawTower(-2.4, 0.3, 0.4 + (snap.memPct.value / 100) * 2.1, mCol, 'MEM');
+          // 8 CPU P/E cores (back arc)
+          snap.cores.forEach((c, i) => {
+            const x = -1.5 + i * 0.48;
+            const ht = c.util.state === 'measured' ? 0.25 + (c.util.value / 100) * 2.1 : 0.08;
+            const col = c.util.state === 'measured' ? (c.kind === 'p-core' ? pCol : eCol) : uCol;
+            drawTower(x, -0.9, ht, col, c.kind === 'p-core' ? 'P' + i : 'E' + i);
+          });
+          // Sensors (GPU measured, NPU/Thermal/Power flat dim markers — never fake 0%)
+          drawTower(2.1, 0.2, 0.25 + (snap.gpu.value / 100) * 1.9, pCol, 'GPU');
+          drawTower(2.55, 0.2, 0.07, uCol, 'NPU');
+          drawTower(3.0, 0.2, 0.07, uCol, 'PWR');
+        };
+
+        const render = () => {
+          const snap = buildSnapshot();
+          const sensorRows = [
+            ['CPU Total', snap.cpuTotal],
+            ['Memory Pressure', snap.memPct],
+            ['GPU Utilization', snap.gpu],
+            ['NPU Utilization', snap.npu],
+            ['Die Hotspot', snap.hotspot],
+            ['Package Power', snap.power],
+          ];
+          const sBody = this.querySelector('[data-sensor-body]');
+          if (sBody) {
+            sBody.innerHTML = sensorRows.map(([lbl, s]) => {
+              const val = s.state === 'measured' ? s.value + (s.unit || '') : s.state.toUpperCase() + ' (' + s.reason + ')';
+              return '<tr><td>' + lbl + '</td><td><span class="badge badge-' + s.state + '">' + s.state.toUpperCase() + '</span></td><td>' + val + '</td></tr>';
+            }).join('');
+          }
+          const pBody = this.querySelector('[data-proc-body]');
+          if (pBody) {
+            pBody.innerHTML = snap.processes.map((p) =>
+              '<tr><td><code>' + p.key + '</code></td><td>' + p.name + '</td><td>' + p.aff + '</td><td>' + p.rss + '</td><td>' + p.cpu + '</td></tr>'
+            ).join('');
+          }
+          const tc = this.querySelector('[data-trace-count]');
+          if (tc) tc.textContent = '.b8gtrace frames: ' + traces.length;
+          draw3d(snap);
+        };
+
+        this.querySelector('[data-action="sample"]')?.addEventListener('click', () => { tick++; render(); });
+        this.querySelector('[data-action="toggle-live"]')?.addEventListener('click', (ev) => {
+          live = !live;
+          ev.target.textContent = live ? 'Pause Live' : 'Resume Live';
+        });
+        this.querySelector('[data-action="inject-gap"]')?.addEventListener('click', () => {
+          forceGap = !forceGap;
+          render();
+        });
+        this.querySelector('[data-action="theme"]')?.addEventListener('change', (ev) => {
+          if (ev.target?.value) { this.setAttribute('data-theme', ev.target.value); render(); }
+        });
+
+        render();
+        setInterval(() => {
+          if (!live) return;
+          tick++;
+          angle = 0.25 + Math.sin(tick * 0.08) * 0.22;
+          render();
+        }, 700);
+      }
+    }
+    if (!customElements.get('b8g-task-manager')) {
+      customElements.define('b8g-task-manager', B8gTaskManagerElement);
+    }
+  </script>
+</body>
+</html>

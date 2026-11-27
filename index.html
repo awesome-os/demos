@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Awesome-OS Demos — Sparse No-Cone Architecture Showcase</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050811;
+      --bg-glow-1: rgba(56, 189, 248, 0.16);
+      --bg-glow-2: rgba(168, 85, 247, 0.14);
+      --glass: rgba(15, 23, 42, 0.62);
+      --glass-hover: rgba(20, 31, 56, 0.8);
+      --border: rgba(148, 163, 184, 0.22);
+      --border-hi: rgba(56, 189, 248, 0.55);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --violet: #c084fc;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(900px 520px at 12% 8%, var(--bg-glow-1), transparent 60%),
+        radial-gradient(800px 480px at 88% 15%, var(--bg-glow-2), transparent 60%),
+        linear-gradient(180deg, #04070f 0%, #090f1e 100%);
+      padding: 32px 20px 56px;
+    }
+    b8g-demo-hub {
+      display: block;
+      max-width: 1160px;
+      margin: 0 auto;
+    }
+    .hero {
+      background: var(--glass);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 30px 28px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      margin-bottom: 24px;
+    }
+    .pill-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.74rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.7);
+      color: var(--accent);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(1.65rem, 3vw, 2.35rem);
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.55;
+      max-width: 78ch;
+      font-size: 0.98rem;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+    .card {
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+    }
+    .card:hover {
+      transform: translateY(-3px);
+      border-color: var(--border-hi);
+      background: var(--glass-hover);
+    }
+    .card-tag {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+    .tag-amber { color: var(--amber); }
+    .tag-green { color: var(--green); }
+    .tag-violet { color: var(--violet); }
+    .card h2 { margin: 0 0 8px; font-size: 1.25rem; }
+    .card p { margin: 0 0 14px; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      color: #cbd5e1;
+    }
+    .btn-row { display: flex; gap: 10px; align-items: center; }
+    a.launch {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      padding: 9px 16px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.88rem;
+      background: linear-gradient(135deg, #0ea5e9, #6366f1);
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+    a.launch:hover { filter: brightness(1.1); }
+    button.copy-btn {
+      background: rgba(15, 23, 42, 0.75);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+    button.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .sparse-box {
+      background: var(--glass);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+    }
+    .sparse-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .sparse-header h2 { margin: 0; font-size: 1.05rem; }
+    .tab-bar { display: flex; flex-wrap: wrap; gap: 6px; }
+    .tab-btn {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      padding: 5px 11px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(2, 6, 23, 0.55);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .tab-btn[aria-selected="true"] {
+      color: #050811;
+      background: var(--accent);
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+    pre.cmd {
+      margin: 0;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(2, 6, 23, 0.82);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.83rem;
+      line-height: 1.55;
+      color: #e2e8f0;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    footer {
+      margin-top: 22px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+  </style>
+</head>
+<body>
+  <b8g-demo-hub data-channel="command">
+    <header class="hero">
+      <div class="pill-row">
+        <span class="pill">awesome-os/demos</span>
+        <span class="pill">git sparse-checkout --no-cone</span>
+        <span class="pill">BSD-3-Clause</span>
+        <span class="pill">Zero External Deps</span>
+      </div>
+      <h1>Awesome-OS Architecture Demos</h1>
+      <p class="subtitle">
+        A sparse <code>--no-cone</code> monorepo of self-contained, zero-dependency interactive demonstrations
+        from the Awesome-OS 4-layer runtime stack: clean-room DEC PDP-11/40 UNIBUS emulation, honest-measurement
+        4-theme Phosphor 3D Task Manager telemetry, and the CuRast VisBuf / ORCA / Neural BRDF + 3DGS graphics pipeline.
+      </p>
+    </header>
+
+    <main class="grid">
+      <article class="card">
+        <div>
+          <div class="card-tag tag-amber">arch/pdp11 · C11 + WASI + HTML5</div>
+          <h2>PDP-11/40 UNIBUS Cockpit</h2>
+          <p>
+            Clean-room DEC PDP-11/40 CPU &amp; UNIBUS MMIO emulator wired to Task Manager telemetry registers
+            (<code>0177000..0177010</code>), KL11 serial UART (<code>0177564/0177566</code>), interactive front-panel
+            switch/LED blinkenlights, and compiled <code>b8g-pdp11.wasm</code> reactor.
+          </p>
+          <div class="chips">
+            <span class="chip">&lt;b8g-pdp11-taskmgr&gt;</span>
+            <span class="chip">b8g-pdp11.wasm</span>
+            <span class="chip">Octal ISA</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <a class="launch" href="./arch/pdp11/">Launch PDP-11 Demo</a>
+          <button type="button" class="copy-btn" data-copy-target="pdp11">Copy Sparse Cmd</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div>
+          <div class="card-tag tag-green">arch/task-manager · 4 Phosphor Themes</div>
+          <h2>Phosphor 3D Task Manager</h2>
+          <p>
+            Honest tri-state telemetry cockpit (<code>measured</code> | <code>unsupported</code> | <code>gap</code>)
+            that never fakes <code>0</code> for missing sensors. Features 4 phosphor themes, 12 destinations,
+            P/E core 3D towers, <code>PID:startTimeMs</code> process keys, and <code>.b8gtrace</code> replay.
+          </p>
+          <div class="chips">
+            <span class="chip">&lt;b8g-task-manager&gt;</span>
+            <span class="chip">12 Destinations</span>
+            <span class="chip">.b8gtrace</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <a class="launch" href="./arch/task-manager/">Launch Task Manager</a>
+          <button type="button" class="copy-btn" data-copy-target="task-manager">Copy Sparse Cmd</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <div>
+          <div class="card-tag tag-violet">arch/graphics · WebGPU + Canvas2D</div>
+          <h2>VisBuf / ORCA / 3DGS Engine</h2>
+          <p>
+            Zero-copy hybrid renderer uniting a 64-bit <code>atomicMin</code> CuRast Visibility Buffer + Two-Pass HZB
+            occlusion culler, Stateless ORCA Radiance Cache + Multi-Layer ReSTIR GI, and a <code>7,060 B</code>
+            Neural BRDF MLP composited with 16&times;16 tiled 3D Gaussian Splatting.
+          </p>
+          <div class="chips">
+            <span class="chip">&lt;b8g-graphics-demo&gt;</span>
+            <span class="chip">64-bit VisBuf</span>
+            <span class="chip">3DGS Hybrid</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <a class="launch" href="./arch/graphics/">Launch Graphics Demo</a>
+          <button type="button" class="copy-btn" data-copy-target="graphics">Copy Sparse Cmd</button>
+        </div>
+      </article>
+    </main>
+
+    <section class="sparse-box">
+      <div class="sparse-header">
+        <h2>Sparse <code>--no-cone</code> Checkout (Clone Only What You Need)</h2>
+        <div class="tab-bar" role="tablist">
+          <button type="button" class="tab-btn" data-sparse-tab="pdp11" aria-selected="true">/arch/pdp11/</button>
+          <button type="button" class="tab-btn" data-sparse-tab="task-manager" aria-selected="false">/arch/task-manager/</button>
+          <button type="button" class="tab-btn" data-sparse-tab="graphics" aria-selected="false">/arch/graphics/</button>
+          <button type="button" class="tab-btn" data-sparse-tab="all" aria-selected="false">all /arch/*</button>
+        </div>
+      </div>
+      <pre class="cmd" data-sparse-cmd>git clone --filter=blob:none --no-checkout --sparse https://github.com/awesome-os/demos.git &amp;&amp; cd demos &amp;&amp; git sparse-checkout init --no-cone &amp;&amp; git sparse-checkout set /arch/pdp11/ &amp;&amp; git checkout main</pre>
+    </section>
+
+    <footer>
+      <span>Awesome-OS Contributors · BSD-3-Clause · Zero external runtime dependencies</span>
+      <span><a href="https://github.com/awesome-os/demos">github.com/awesome-os/demos</a></span>
+    </footer>
+  </b8g-demo-hub>
+
+  <script type="module">
+    const SNIPPETS = {
+      pdp11: 'git clone --filter=blob:none --no-checkout --sparse https://github.com/awesome-os/demos.git && cd demos && git sparse-checkout init --no-cone && git sparse-checkout set /arch/pdp11/ && git checkout main',
+      'task-manager': 'git clone --filter=blob:none --no-checkout --sparse https://github.com/awesome-os/demos.git && cd demos && git sparse-checkout init --no-cone && git sparse-checkout set /arch/task-manager/ && git checkout main',
+      graphics: 'git clone --filter=blob:none --no-checkout --sparse https://github.com/awesome-os/demos.git && cd demos && git sparse-checkout init --no-cone && git sparse-checkout set /arch/graphics/ && git checkout main',
+      all: 'git clone --filter=blob:none --no-checkout --sparse https://github.com/awesome-os/demos.git && cd demos && git sparse-checkout init --no-cone && git sparse-checkout set /arch/ && git checkout main',
+    };
+
+    class B8gDemoHubElement extends HTMLElement {
+      connectedCallback() {
+        this.setAttribute('data-hydrated', 'true');
+        const cmdEl = this.querySelector('[data-sparse-cmd]');
+        const tabs = this.querySelectorAll('[data-sparse-tab]');
+        const selectTab = (key) => {
+          tabs.forEach((t) => t.setAttribute('aria-selected', t.getAttribute('data-sparse-tab') === key ? 'true' : 'false'));
+          if (cmdEl && SNIPPETS[key]) cmdEl.textContent = SNIPPETS[key];
+        };
+        tabs.forEach((btn) => {
+          btn.addEventListener('click', () => selectTab(btn.getAttribute('data-sparse-tab')));
+        });
+        this.querySelectorAll('[data-copy-target]').forEach((btn) => {
+          btn.addEventListener('click', async () => {
+            const key = btn.getAttribute('data-copy-target');
+            selectTab(key);
+            const text = SNIPPETS[key];
+            if (navigator.clipboard && text) {
+              try {
+                await navigator.clipboard.writeText(text);
+                const prev = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = prev; }, 1200);
+              } catch {}
+            }
+          });
+        });
+      }
+    }
+    if (!customElements.get('b8g-demo-hub')) {
+      customElements.define('b8g-demo-hub', B8gDemoHubElement);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "schema": "holo-ci.v1",
+  "name": "demos",
+  "kind": "monorepo",
+  "version": "0.1.0",
+  "tests": [
+    "node --test scripts/demos.test.mts"
+  ],
+  "docs": [
+    "README.md",
+    "CHANGELOG.md",
+    "arch/pdp11/README.md",
+    "arch/task-manager/README.md",
+    "arch/graphics/README.md"
+  ],
+  "guards": {
+    "zeroGhost": true,
+    "zeroCasV1": true,
+    "zeroHttpIpc": true,
+    "spdxLicense": true,
+    "gitattributes": true,
+    "codeowners": true,
+    "noBrokenBadges": true,
+    "noWorkflowBloat": true,
+    "maxWorkflowLines": 120
+  }
+}

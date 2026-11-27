@@ -1,0 +1,20 @@
+{
+  "schema": "holo-boundary.v1",
+  "plane": 4,
+  "includePaths": [
+    "arch",
+    "scripts"
+  ],
+  "excludeDirs": [
+    ".git",
+    "node_modules",
+    ".holo-ci-runtime"
+  ],
+  "forbiddenImports": [
+    "WidevineCdm",
+    "optimization_guide_internal",
+    "GoogleUpdate"
+  ],
+  "maxParentTraversals": 2,
+  "scanSourceHttpIpc": true
+}
