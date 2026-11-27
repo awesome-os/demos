@@ -25,6 +25,83 @@ export const B8G_PDP11_MMIO_TM_SEQ = 0o177010;
 export const B8G_PDP11_KL11_XCSR = 0o177564;
 export const B8G_PDP11_KL11_XBUF = 0o177566;
 export const B8G_PDP11_SWITCH_REG = 0o177570;
+export const B8G_PDP11_MMR0 = 0o177572;
+export const B8G_PDP11_KPDR_BASE = 0o172300;
+export const B8G_PDP11_KPAR_BASE = 0o172340;
+
+export const PDP11_DISK_BLOCK_BYTES = 512;
+export const PDP11_DISK_WORDS_PER_BLOCK = 256;
+export const PDP11_DISK_BLOCK_COUNT = 32;
+export const PDP11_UNIX_V6_SUPERBLOCK_MAGIC = 0o060606;
+export const PDP11_RSX11M_SUPERBLOCK_MAGIC = 0o110011;
+export const PDP11_BARE_METAL_SUPERBLOCK_MAGIC = 0o031520;
+
+export type DiskPresetId = 'bare-metal' | 'v6-rk05' | 'rsx11m-rx01';
+
+export interface Pdp11BusCycleEntry {
+  readonly cycle: number;
+  readonly pcOctal: string;
+  readonly physOctal: string;
+  readonly opcodeOctal: string;
+  readonly busOp: 'FETCH' | 'MMIO_RD' | 'MMIO_WR' | 'HALT';
+  readonly targetOctal: string;
+  readonly valueOctal: string;
+}
+
+export interface Pdp11MmuSnapshot {
+  readonly enabled: boolean;
+  readonly mmr0Octal: string;
+  readonly kpar: readonly string[];
+  readonly kpdr: readonly string[];
+}
+
+export interface Pdp11DiskInode {
+  readonly ino: number;
+  readonly path: string;
+  readonly kind: 'dir' | 'file' | 'task' | 'dev';
+  readonly mode: number;
+  readonly modeOctal: string;
+  readonly nlink: number;
+  readonly uid: number;
+  readonly gid: number;
+  readonly sizeBytes: number;
+  readonly blocks: readonly number[];
+  readonly description: string;
+}
+
+export interface Pdp11DirEntry {
+  readonly ino: number;
+  readonly name: string;
+  readonly path: string;
+}
+
+export interface Pdp11SuperblockInfo {
+  readonly presetId: DiskPresetId;
+  readonly label: string;
+  readonly drive: string;
+  readonly magic: number;
+  readonly magicOctal: string;
+  readonly blockSize: number;
+  readonly inodeBlocks: number;
+  readonly volumeTotalBlocks: number;
+  readonly freeCount: number;
+  readonly freeBlocks: readonly number[];
+  readonly freeInodeCount: number;
+  readonly freeInodes: readonly number[];
+}
+
+export interface Pdp11DiskImage {
+  readonly presetId: DiskPresetId;
+  readonly label: string;
+  readonly drive: string;
+  readonly blockBytes: number;
+  readonly blockCount: number;
+  readonly bytes: Uint8Array;
+  readonly superblock: Pdp11SuperblockInfo;
+  readonly inodes: readonly Pdp11DiskInode[];
+  readonly rootEntries: readonly Pdp11DirEntry[];
+  readonly bootBanner: string;
+}
 
 export const PDP11_PSW_C = 0x0001;
 export const PDP11_PSW_V = 0x0002;
@@ -60,6 +137,8 @@ export interface Pdp11StateSnapshot {
   readonly displayReg: number;
   readonly txText: string;
   readonly mmioTmRegs: readonly number[];
+  readonly mmu: Pdp11MmuSnapshot;
+  readonly busTrace: readonly Pdp11BusCycleEntry[];
 }
 
 export interface AssembledProgram {
@@ -76,6 +155,10 @@ interface OperandRef {
 
 export function octal16(value: number): string {
   return ((value & 0xffff) >>> 0).toString(8).padStart(6, '0');
+}
+
+export function octal18(value: number): string {
+  return ((value & 0x3ffff) >>> 0).toString(8).padStart(6, '0');
 }
 
 export function bits16String(value: number, onChar = '●', offChar = '○'): string {
@@ -96,8 +179,12 @@ export class Pdp11Machine {
   readonly mmioTmRegs = new Uint16Array(B8G_PDP11_TM_REG_COUNT);
   readonly txBuf = new Uint8Array(B8G_PDP11_TX_CAP);
   readonly ram = new Uint8Array(B8G_PDP11_RAM_BYTES);
+  readonly kpar = new Uint16Array(8);
+  readonly kpdr = new Uint16Array(8);
+  readonly busTrace: Pdp11BusCycleEntry[] = [];
 
   psw = 0;
+  mmr0 = 0;
   halted = false;
   lastFault = 0;
   cycleCount = 0;
@@ -116,6 +203,14 @@ export class Pdp11Machine {
     this.mmioTmRegs.fill(0);
     this.txBuf.fill(0);
     this.ram.fill(0);
+    for (let i = 0; i < 7; i++) {
+      this.kpar[i] = (i * 0o200) & 0o7777;
+      this.kpdr[i] = 0o077406;
+    }
+    this.kpar[7] = 0o007600;
+    this.kpdr[7] = 0o077406;
+    this.busTrace.length = 0;
+    this.mmr0 = 0;
     this.regs[6] = 0o000700;
     this.regs[7] = startPc & 0xffff;
     this.psw = 0;
@@ -127,6 +222,37 @@ export class Pdp11Machine {
     this.switchReg = 0;
     this.displayReg = 0;
     this.txText = '';
+  }
+
+  translatePhysical18(vaddr: number): number {
+    const va = vaddr & 0xffff;
+    if ((this.mmr0 & 1) === 0) {
+      return va >= 0o160000 ? (0o760000 | (va & 0o017777)) : va;
+    }
+    const apr = (va >> 13) & 7;
+    const par = this.kpar[apr] & 0o7777;
+    return (((par << 6) + (va & 0o017777)) & 0x3ffff);
+  }
+
+  private recordBusCycle(
+    pcBefore: number,
+    opcode: number,
+    busOp: Pdp11BusCycleEntry['busOp'],
+    target: number,
+    value: number,
+  ): void {
+    if (this.busTrace.length >= 64) {
+      this.busTrace.shift();
+    }
+    this.busTrace.push({
+      cycle: this.cycleCount,
+      pcOctal: octal16(pcBefore),
+      physOctal: octal18(this.translatePhysical18(pcBefore)),
+      opcodeOctal: octal16(opcode),
+      busOp,
+      targetOctal: octal16(target),
+      valueOctal: octal16(value),
+    });
   }
 
   loadWords(baseAddr: number, words: ArrayLike<number>): void {
@@ -191,9 +317,16 @@ export class Pdp11Machine {
     if (even >= B8G_PDP11_MMIO_TM_BASE && even < B8G_PDP11_MMIO_TM_BASE + B8G_PDP11_TM_REG_COUNT * 2) {
       return this.mmioTmRegs[(even - B8G_PDP11_MMIO_TM_BASE) >> 1];
     }
+    if (even >= B8G_PDP11_KPDR_BASE && even < B8G_PDP11_KPDR_BASE + 16) {
+      return this.kpdr[(even - B8G_PDP11_KPDR_BASE) >> 1];
+    }
+    if (even >= B8G_PDP11_KPAR_BASE && even < B8G_PDP11_KPAR_BASE + 16) {
+      return this.kpar[(even - B8G_PDP11_KPAR_BASE) >> 1];
+    }
     if (even === B8G_PDP11_KL11_XCSR) return 0x0080;
     if (even === B8G_PDP11_KL11_XBUF) return 0x0000;
     if (even === B8G_PDP11_SWITCH_REG) return this.switchReg;
+    if (even === B8G_PDP11_MMR0) return this.mmr0;
     return this.readRam16(even);
   }
 
@@ -236,6 +369,21 @@ export class Pdp11Machine {
     if (even === B8G_PDP11_SWITCH_REG) {
       this.displayReg = v;
       this.writeRam16(even, v);
+      return;
+    }
+    if (even === B8G_PDP11_MMR0) {
+      this.mmr0 = v;
+      this.writeRam16(even, v);
+      return;
+    }
+    if (even >= B8G_PDP11_KPDR_BASE && even < B8G_PDP11_KPDR_BASE + 16) {
+      this.kpdr[(even - B8G_PDP11_KPDR_BASE) >> 1] = v;
+      this.writeRam16(even, v);
+      return;
+    }
+    if (even >= B8G_PDP11_KPAR_BASE && even < B8G_PDP11_KPAR_BASE + 16) {
+      this.kpar[(even - B8G_PDP11_KPAR_BASE) >> 1] = v & 0o7777;
+      this.writeRam16(even, v & 0o7777);
       return;
     }
     if (even >= B8G_PDP11_MMIO_TM_BASE && even < B8G_PDP11_MMIO_TM_BASE + B8G_PDP11_TM_REG_COUNT * 2) {
@@ -379,13 +527,16 @@ export class Pdp11Machine {
 
   step(): boolean {
     if (this.halted) return false;
+    const pcBefore = this.regs[7];
     const op = this.fetchWord();
     this.cycleCount++;
 
     if (op === 0o000000) {
+      this.recordBusCycle(pcBefore, op, 'HALT', pcBefore, op);
       this.halted = true;
       return false;
     }
+    this.recordBusCycle(pcBefore, op, 'FETCH', pcBefore, op);
     if (op === 0o000001) return true;
     if (op === 0o000005) {
       this.lastFault = 0;
@@ -617,6 +768,13 @@ export class Pdp11Machine {
       displayReg: this.displayReg,
       txText: this.txText,
       mmioTmRegs: Array.from(this.mmioTmRegs),
+      mmu: {
+        enabled: (this.mmr0 & 1) !== 0,
+        mmr0Octal: octal16(this.mmr0),
+        kpar: Array.from(this.kpar, (w) => octal16(w)),
+        kpdr: Array.from(this.kpdr, (w) => octal16(w)),
+      },
+      busTrace: [...this.busTrace],
     };
   }
 }
@@ -953,9 +1111,454 @@ export function assembleTelemetryMonitorProgram(origin = 0o001000): AssembledPro
   ], origin);
 }
 
-export function runPdp11Demo(cpuPct = 34.5, memPct = 61.2, procCount = 48, seq = 1): Pdp11StateSnapshot {
+function writeWord16(buf: Uint8Array, byteOffset: number, value: number): void {
+  const v = value & 0xffff;
+  buf[byteOffset] = v & 0xff;
+  buf[byteOffset + 1] = (v >> 8) & 0xff;
+}
+
+function readWord16(buf: Uint8Array, byteOffset: number): number {
+  return (buf[byteOffset] | (buf[byteOffset + 1] << 8)) & 0xffff;
+}
+
+function writeAsciiFixed(buf: Uint8Array, byteOffset: number, maxLen: number, text: string): void {
+  buf.fill(0, byteOffset, byteOffset + maxLen);
+  const n = Math.min(maxLen, text.length);
+  for (let i = 0; i < n; i++) {
+    buf[byteOffset + i] = text.charCodeAt(i) & 0xff;
+  }
+}
+
+function readAsciiFixed(buf: Uint8Array, byteOffset: number, maxLen: number): string {
+  let out = '';
+  for (let i = 0; i < maxLen; i++) {
+    const ch = buf[byteOffset + i];
+    if (ch === 0) break;
+    out += String.fromCharCode(ch);
+  }
+  return out;
+}
+
+interface DiskPresetLayout {
+  readonly presetId: DiskPresetId;
+  readonly label: string;
+  readonly drive: string;
+  readonly magic: number;
+  readonly volumeTotalBlocks: number;
+  readonly inodeBlocks: number;
+  readonly freeBlocks: readonly number[];
+  readonly freeInodes: readonly number[];
+  readonly bootBanner: string;
+  readonly inodes: readonly Pdp11DiskInode[];
+  readonly dirBlocks: readonly {
+    readonly blockNum: number;
+    readonly prefixPath: string;
+    readonly entries: readonly { readonly ino: number; readonly name: string }[];
+  }[];
+  readonly payloads: readonly { readonly blockNum: number; readonly text: string }[];
+}
+
+function buildDiskImageFromLayout(layout: DiskPresetLayout): Pdp11DiskImage {
+  const bytes = new Uint8Array(PDP11_DISK_BLOCK_COUNT * PDP11_DISK_BLOCK_BYTES);
+
+  // Block 0: Clean-room PDP-11 Boot Block
+  const bootStubWords = [0o012706, 0o000700, 0o012705, 0o001040, 0o000000];
+  for (let i = 0; i < bootStubWords.length; i++) {
+    writeWord16(bytes, i * 2, bootStubWords[i]);
+  }
+  writeAsciiFixed(bytes, 32, 96, layout.bootBanner);
+
+  // Block 1: Unix V6 filsys / ODS-1 Superblock (512 bytes)
+  const sbOff = PDP11_DISK_BLOCK_BYTES;
+  writeWord16(bytes, sbOff + 0, layout.inodeBlocks);
+  writeWord16(bytes, sbOff + 2, layout.volumeTotalBlocks);
+  writeWord16(bytes, sbOff + 4, layout.freeBlocks.length);
+  for (let i = 0; i < Math.min(100, layout.freeBlocks.length); i++) {
+    writeWord16(bytes, sbOff + 6 + i * 2, layout.freeBlocks[i]);
+  }
+  writeWord16(bytes, sbOff + 206, layout.freeInodes.length);
+  for (let i = 0; i < Math.min(100, layout.freeInodes.length); i++) {
+    writeWord16(bytes, sbOff + 208 + i * 2, layout.freeInodes[i]);
+  }
+  writeWord16(bytes, sbOff + 224, 0);
+  writeWord16(bytes, sbOff + 226, 0x6995);
+  writeWord16(bytes, sbOff + 228, 0x2026);
+  writeWord16(bytes, sbOff + 230, layout.magic);
+  writeAsciiFixed(bytes, sbOff + 240, 16, layout.label);
+  writeAsciiFixed(bytes, sbOff + 256, 16, layout.drive);
+
+  // Block 2: Inode Table (16 x 32-byte inodes, 1-indexed)
+  const inoBlockOff = 2 * PDP11_DISK_BLOCK_BYTES;
+  for (const inode of layout.inodes) {
+    if (inode.ino < 1 || inode.ino > 16) continue;
+    const off = inoBlockOff + (inode.ino - 1) * 32;
+    writeWord16(bytes, off + 0, inode.mode);
+    bytes[off + 2] = inode.nlink & 0xff;
+    bytes[off + 3] = inode.uid & 0xff;
+    bytes[off + 4] = inode.gid & 0xff;
+    bytes[off + 5] = (inode.sizeBytes >> 16) & 0xff;
+    writeWord16(bytes, off + 6, inode.sizeBytes & 0xffff);
+    for (let b = 0; b < Math.min(8, inode.blocks.length); b++) {
+      writeWord16(bytes, off + 8 + b * 2, inode.blocks[b]);
+    }
+    writeWord16(bytes, off + 24, 0x2026);
+    writeWord16(bytes, off + 28, 0x2026);
+  }
+
+  // Directory Blocks (16 bytes per entry: 2B ino + 14B NUL-padded name)
+  const rootEntries: Pdp11DirEntry[] = [];
+  for (const dir of layout.dirBlocks) {
+    const dirOff = dir.blockNum * PDP11_DISK_BLOCK_BYTES;
+    dir.entries.forEach((entry, idx) => {
+      const eOff = dirOff + idx * 16;
+      if (eOff + 16 > (dir.blockNum + 1) * PDP11_DISK_BLOCK_BYTES) return;
+      writeWord16(bytes, eOff, entry.ino);
+      writeAsciiFixed(bytes, eOff + 2, 14, entry.name);
+      const prefix = dir.prefixPath.endsWith('/') ? dir.prefixPath : `${dir.prefixPath}/`;
+      rootEntries.push({
+        ino: entry.ino,
+        name: entry.name,
+        path: entry.name === '.' || entry.name === '..' ? `${prefix}${entry.name}` : `${prefix}${entry.name}`,
+      });
+    });
+  }
+
+  // Payload Blocks (clean-room executable/script/boot metadata)
+  for (const payload of layout.payloads) {
+    const pOff = payload.blockNum * PDP11_DISK_BLOCK_BYTES;
+    writeAsciiFixed(bytes, pOff, PDP11_DISK_BLOCK_BYTES, payload.text);
+  }
+
+  const sbBlock = bytes.slice(PDP11_DISK_BLOCK_BYTES, 2 * PDP11_DISK_BLOCK_BYTES);
+  const parsedSb = parseSuperblockFromBlock(sbBlock, layout.presetId);
+
+  return {
+    presetId: layout.presetId,
+    label: layout.label,
+    drive: layout.drive,
+    blockBytes: PDP11_DISK_BLOCK_BYTES,
+    blockCount: PDP11_DISK_BLOCK_COUNT,
+    bytes,
+    superblock: {
+      presetId: layout.presetId,
+      label: parsedSb.label,
+      drive: layout.drive,
+      magic: parsedSb.magic,
+      magicOctal: parsedSb.magicOctal,
+      blockSize: PDP11_DISK_BLOCK_BYTES,
+      inodeBlocks: parsedSb.inodeBlocks,
+      volumeTotalBlocks: parsedSb.volumeTotalBlocks,
+      freeCount: parsedSb.freeCount,
+      freeBlocks: parsedSb.freeBlocks,
+      freeInodeCount: parsedSb.freeInodeCount,
+      freeInodes: layout.freeInodes,
+    },
+    inodes: layout.inodes,
+    rootEntries,
+    bootBanner: layout.bootBanner,
+  };
+}
+
+export function buildUnixV6DiskImage(): Pdp11DiskImage {
+  return buildDiskImageFromLayout({
+    presetId: 'v6-rk05',
+    label: 'UNIX-V6-RK05',
+    drive: 'RK05',
+    magic: PDP11_UNIX_V6_SUPERBLOCK_MAGIC,
+    volumeTotalBlocks: 4872,
+    inodeBlocks: 16,
+    freeBlocks: [25, 26, 27, 28, 29, 30, 31],
+    freeInodes: [9, 10, 11, 12, 13, 14, 15, 16],
+    bootBanner: 'UNIX V6 RK05 BOOT: /etc/init -> /bin/sh',
+    inodes: [
+      { ino: 1, path: '/', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 4, uid: 0, gid: 0, sizeBytes: 96, blocks: [18], description: 'Root directory (/)' },
+      { ino: 2, path: '/etc', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 2, uid: 0, gid: 0, sizeBytes: 48, blocks: [19], description: 'System configuration & init directory' },
+      { ino: 3, path: '/etc/init', kind: 'file', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 0, gid: 0, sizeBytes: 192, blocks: [21], description: 'Clean-room PID 1 init launcher -> spawns /bin/sh' },
+      { ino: 4, path: '/bin', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 2, uid: 0, gid: 0, sizeBytes: 64, blocks: [20], description: 'Essential user binaries' },
+      { ino: 5, path: '/bin/sh', kind: 'file', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 0, gid: 0, sizeBytes: 256, blocks: [22], description: 'Clean-room V6 Thompson-style command shell' },
+      { ino: 6, path: '/dev', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 2, uid: 0, gid: 0, sizeBytes: 32, blocks: [18], description: 'Device nodes' },
+      { ino: 7, path: '/dev/kl11', kind: 'dev', mode: 0o120666, modeOctal: '120666', nlink: 1, uid: 0, gid: 0, sizeBytes: 0, blocks: [0o177564], description: 'KL11 serial console (CSR 0177564, BUF 0177566)' },
+      { ino: 8, path: '/bin/taskmgr', kind: 'file', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 0, gid: 0, sizeBytes: 224, blocks: [23], description: 'B8G UNIBUS Task Manager telemetry binary (0177000..0177010)' },
+    ],
+    dirBlocks: [
+      {
+        blockNum: 18,
+        prefixPath: '/',
+        entries: [
+          { ino: 1, name: '.' },
+          { ino: 1, name: '..' },
+          { ino: 2, name: 'etc' },
+          { ino: 4, name: 'bin' },
+          { ino: 6, name: 'dev' },
+          { ino: 8, name: 'taskmgr' },
+        ],
+      },
+      {
+        blockNum: 19,
+        prefixPath: '/etc',
+        entries: [
+          { ino: 2, name: '.' },
+          { ino: 1, name: '..' },
+          { ino: 3, name: 'init' },
+        ],
+      },
+      {
+        blockNum: 20,
+        prefixPath: '/bin',
+        entries: [
+          { ino: 4, name: '.' },
+          { ino: 1, name: '..' },
+          { ino: 5, name: 'sh' },
+          { ino: 8, name: 'taskmgr' },
+        ],
+      },
+    ],
+    payloads: [
+      { blockNum: 21, text: '; B8G CLEAN-ROOM /etc/init\nMOUNT RK05 / READONLY\nEXEC /bin/sh -c "/bin/taskmgr"\n' },
+      { blockNum: 22, text: '# /bin/sh clean-room script\nPATH=/bin:/etc\nexec /bin/taskmgr --mmio=0177000\n' },
+      { blockNum: 23, text: 'B8G_TASKMGR_V6::MMIO=0177000..0177010 KL11=0177566\n' },
+    ],
+  });
+}
+
+export function buildRsx11mDiskImage(): Pdp11DiskImage {
+  return buildDiskImageFromLayout({
+    presetId: 'rsx11m-rx01',
+    label: 'RSX11M-RX01',
+    drive: 'RX01',
+    magic: PDP11_RSX11M_SUPERBLOCK_MAGIC,
+    volumeTotalBlocks: 494,
+    inodeBlocks: 16,
+    freeBlocks: [25, 26, 27, 28, 29, 30, 31],
+    freeInodes: [7, 8, 9, 10, 11, 12, 13, 14],
+    bootBanner: 'RSX-11M RX01: MCR> INS [1,54]TASKMGR.TSK',
+    inodes: [
+      { ino: 1, path: '[000000]000000.DIR;1', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 3, uid: 1, gid: 1, sizeBytes: 112, blocks: [18], description: 'ODS-1 Master File Directory (MFD)' },
+      { ino: 2, path: '[000000]INDEXF.SYS;1', kind: 'file', mode: 0o100644, modeOctal: '100644', nlink: 1, uid: 1, gid: 1, sizeBytes: 512, blocks: [2], description: 'ODS-1 Index File Header Table' },
+      { ino: 3, path: '[001054]MCR.TSK;1', kind: 'task', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 1, gid: 54, sizeBytes: 256, blocks: [21], description: 'Monitor Console Routine (MCR) command parser task' },
+      { ino: 4, path: '[001054]TASKMGR.TSK;1', kind: 'task', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 1, gid: 54, sizeBytes: 320, blocks: [22], description: 'B8G Real-Time Executive Task Manager (.TSK)' },
+      { ino: 5, path: '[001054]STARTUP.CMD;1', kind: 'file', mode: 0o100644, modeOctal: '100644', nlink: 1, uid: 1, gid: 54, sizeBytes: 128, blocks: [23], description: 'RSX-11M MCR Startup Script' },
+      { ino: 6, path: '[001054]PIP.TSK;1', kind: 'task', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 1, gid: 54, sizeBytes: 192, blocks: [24], description: 'Peripheral Interchange Program (PIP) disk utility' },
+    ],
+    dirBlocks: [
+      {
+        blockNum: 18,
+        prefixPath: '[001054]',
+        entries: [
+          { ino: 1, name: '.' },
+          { ino: 1, name: '..' },
+          { ino: 2, name: 'INDEXF.SYS;1' },
+          { ino: 3, name: 'MCR.TSK;1' },
+          { ino: 4, name: 'TASKMGR.TSK;1' },
+          { ino: 5, name: 'STARTUP.CMD;1' },
+          { ino: 6, name: 'PIP.TSK;1' },
+        ],
+      },
+    ],
+    payloads: [
+      { blockNum: 21, text: '; B8G CLEAN-ROOM MCR.TSK\nMCR> ACT /TERM=TT0:\nMCR> RUN [1,54]TASKMGR.TSK\n' },
+      { blockNum: 22, text: 'RSX11M_TASK_HDR [TASKMGR.TSK] PAR=0172340 MMIO=0177000\n' },
+      { blockNum: 23, text: '; [1,54]STARTUP.CMD\nINS [1,54]TASKMGR.TSK\nRUN [1,54]TASKMGR.TSK\n' },
+      { blockNum: 24, text: 'PIP DY0:[1,54]*.TSK/LI\n' },
+    ],
+  });
+}
+
+export function buildBareMetalDiskImage(): Pdp11DiskImage {
+  return buildDiskImageFromLayout({
+    presetId: 'bare-metal',
+    label: 'B8G-TASKMGR',
+    drive: 'MEMROM',
+    magic: PDP11_BARE_METAL_SUPERBLOCK_MAGIC,
+    volumeTotalBlocks: 32,
+    inodeBlocks: 4,
+    freeBlocks: [22, 23, 24, 25, 26, 27, 28, 29, 30, 31],
+    freeInodes: [3, 4, 5, 6, 7, 8],
+    bootBanner: 'B8G BARE-METAL ROM: ORIGIN 001000',
+    inodes: [
+      { ino: 1, path: '/', kind: 'dir', mode: 0o140755, modeOctal: '140755', nlink: 2, uid: 0, gid: 0, sizeBytes: 48, blocks: [18], description: 'Bare-metal ROM root' },
+      { ino: 2, path: '/taskmgr.bin', kind: 'file', mode: 0o100755, modeOctal: '100755', nlink: 1, uid: 0, gid: 0, sizeBytes: 256, blocks: [21], description: 'Standalone UNIBUS Telemetry Monitor at 001000' },
+    ],
+    dirBlocks: [
+      {
+        blockNum: 18,
+        prefixPath: '/',
+        entries: [
+          { ino: 1, name: '.' },
+          { ino: 1, name: '..' },
+          { ino: 2, name: 'taskmgr.bin' },
+        ],
+      },
+    ],
+    payloads: [
+      { blockNum: 21, text: 'B8G PDP-11/40 BARE-METAL TELEMETRY MONITOR ORIGIN 001000\n' },
+    ],
+  });
+}
+
+export function getDiskPresetImage(presetId: DiskPresetId): Pdp11DiskImage {
+  if (presetId === 'v6-rk05') return buildUnixV6DiskImage();
+  if (presetId === 'rsx11m-rx01') return buildRsx11mDiskImage();
+  return buildBareMetalDiskImage();
+}
+
+export function readDiskBlock(image: Pdp11DiskImage, blockNum: number): Uint8Array {
+  if (!Number.isInteger(blockNum) || blockNum < 0 || blockNum >= image.blockCount) {
+    throw new RangeError(`Disk block ${blockNum} out of range [0..${image.blockCount - 1}]`);
+  }
+  const start = blockNum * image.blockBytes;
+  return image.bytes.slice(start, start + image.blockBytes);
+}
+
+export function parseSuperblockFromBlock(
+  blockBytes: Uint8Array,
+  presetHint: DiskPresetId = 'v6-rk05',
+): {
+  readonly presetId: DiskPresetId;
+  readonly magic: number;
+  readonly magicOctal: string;
+  readonly inodeBlocks: number;
+  readonly volumeTotalBlocks: number;
+  readonly freeCount: number;
+  readonly freeBlocks: readonly number[];
+  readonly freeInodeCount: number;
+  readonly label: string;
+  readonly drive: string;
+} {
+  if (blockBytes.byteLength < PDP11_DISK_BLOCK_BYTES) {
+    throw new RangeError('Superblock buffer must be at least 512 bytes');
+  }
+  const inodeBlocks = readWord16(blockBytes, 0);
+  const volumeTotalBlocks = readWord16(blockBytes, 2);
+  const freeCount = Math.min(100, readWord16(blockBytes, 4));
+  const freeBlocks: number[] = [];
+  for (let i = 0; i < freeCount; i++) {
+    freeBlocks.push(readWord16(blockBytes, 6 + i * 2));
+  }
+  const freeInodeCount = Math.min(100, readWord16(blockBytes, 206));
+  const magic = readWord16(blockBytes, 230);
+  const label = readAsciiFixed(blockBytes, 240, 16) || presetHint;
+  const drive = readAsciiFixed(blockBytes, 256, 16) || 'RK05';
+  const presetId: DiskPresetId = magic === PDP11_UNIX_V6_SUPERBLOCK_MAGIC
+    ? 'v6-rk05'
+    : magic === PDP11_RSX11M_SUPERBLOCK_MAGIC
+      ? 'rsx11m-rx01'
+      : 'bare-metal';
+  return {
+    presetId,
+    magic,
+    magicOctal: octal16(magic),
+    inodeBlocks,
+    volumeTotalBlocks,
+    freeCount,
+    freeBlocks,
+    freeInodeCount,
+    label,
+    drive,
+  };
+}
+
+export function parseUnixV6Inode(
+  blockBytes: Uint8Array,
+  slotIndex: number,
+): {
+  readonly mode: number;
+  readonly modeOctal: string;
+  readonly nlink: number;
+  readonly uid: number;
+  readonly gid: number;
+  readonly sizeBytes: number;
+  readonly addr: readonly number[];
+} {
+  if (slotIndex < 0 || slotIndex >= 16 || (slotIndex + 1) * 32 > blockBytes.byteLength) {
+    throw new RangeError(`Inode slot ${slotIndex} out of bounds`);
+  }
+  const off = slotIndex * 32;
+  const mode = readWord16(blockBytes, off + 0);
+  const nlink = blockBytes[off + 2];
+  const uid = blockBytes[off + 3];
+  const gid = blockBytes[off + 4];
+  const sizeHi = blockBytes[off + 5];
+  const sizeLo = readWord16(blockBytes, off + 6);
+  const addr: number[] = [];
+  for (let i = 0; i < 8; i++) {
+    const w = readWord16(blockBytes, off + 8 + i * 2);
+    if (w !== 0) addr.push(w);
+  }
+  return {
+    mode,
+    modeOctal: octal16(mode),
+    nlink,
+    uid,
+    gid,
+    sizeBytes: (sizeHi << 16) | sizeLo,
+    addr,
+  };
+}
+
+export function parseDirectoryBlock(blockBytes: Uint8Array): readonly { readonly ino: number; readonly name: string }[] {
+  const entries: { readonly ino: number; readonly name: string }[] = [];
+  for (let off = 0; off + 16 <= blockBytes.byteLength; off += 16) {
+    const ino = readWord16(blockBytes, off);
+    if (ino === 0) continue;
+    const name = readAsciiFixed(blockBytes, off + 2, 14);
+    entries.push({ ino, name });
+  }
+  return entries;
+}
+
+export function formatBlockHexDump(
+  blockBytes: Uint8Array,
+  blockNum = 0,
+  options: { readonly radix?: 'octal' | 'hex' | 'both'; readonly bytesPerLine?: number; readonly maxLines?: number } = {},
+): string {
+  const radix = options.radix ?? 'both';
+  const bytesPerLine = options.bytesPerLine ?? 16;
+  const maxLines = options.maxLines ?? 32;
+  const lines: string[] = [
+    `BLK ${octal16(blockNum)} (${blockNum}) :: ${blockBytes.byteLength} B (${blockBytes.byteLength >> 1} PDP-11 words)`,
+  ];
+  const totalLines = Math.min(maxLines, Math.ceil(blockBytes.byteLength / bytesPerLine));
+  for (let lineIdx = 0; lineIdx < totalLines; lineIdx++) {
+    const off = lineIdx * bytesPerLine;
+    const octWords: string[] = [];
+    const hexWords: string[] = [];
+    let ascii = '';
+    for (let i = 0; i < bytesPerLine; i += 2) {
+      if (off + i + 1 < blockBytes.byteLength) {
+        const w = readWord16(blockBytes, off + i);
+        octWords.push(octal16(w));
+        hexWords.push(w.toString(16).padStart(4, '0'));
+      }
+      for (let b = 0; b < 2 && off + i + b < blockBytes.byteLength; b++) {
+        const ch = blockBytes[off + i + b];
+        ascii += ch >= 32 && ch <= 126 ? String.fromCharCode(ch) : '.';
+      }
+    }
+    const offTag = octal16(off);
+    if (radix === 'octal') {
+      lines.push(`${offTag}: ${octWords.join(' ')} | ${ascii}`);
+    } else if (radix === 'hex') {
+      lines.push(`${offTag}: ${hexWords.join(' ')} | ${ascii}`);
+    } else {
+      lines.push(`${offTag}: ${octWords.join(' ')} | ${hexWords.join(' ')} | ${ascii}`);
+    }
+  }
+  return lines.join('\n');
+}
+
+export function runPdp11Demo(
+  cpuPct = 34.5,
+  memPct = 61.2,
+  procCount = 48,
+  seq = 1,
+  presetId: DiskPresetId = 'bare-metal',
+): Pdp11StateSnapshot {
   const vm = new Pdp11Machine(0o001000);
   vm.switchReg = 0o125252;
+  if (presetId !== 'bare-metal') {
+    vm.write16(B8G_PDP11_MMR0, 1);
+  }
   vm.loadProgram(assembleTelemetryMonitorProgram(0o001000));
   vm.injectTelemetry(Math.round(cpuPct * 10), Math.round(memPct * 10), procCount, 420, seq);
   vm.run(300);
@@ -964,13 +1567,19 @@ export function runPdp11Demo(cpuPct = 34.5, memPct = 61.2, procCount = 48, seq =
 
 if (import.meta.main) {
   const snap = runPdp11Demo();
+  const v6 = buildUnixV6DiskImage();
+  const rsx = buildRsx11mDiskImage();
   console.log(JSON.stringify({
-    schema: 'b8g-pdp11-demo.v1',
+    schema: 'b8g-pdp11-demo.v2',
     abiMagic: `0x${B8G_PDP11_ABI_MAGIC.toString(16).toUpperCase()}`,
     v3Magic: `0x${B8G_ABI_MAGIC_V3.toString(16).toUpperCase()}`,
     halted: snap.halted,
     cycleCount: snap.cycleCount,
     kl11Output: snap.txText.trim(),
     octalRegs: snap.octalRegs,
+    diskPresets: {
+      v6: { label: v6.label, magic: v6.superblock.magicOctal, inodes: v6.inodes.length, freeBlocks: v6.superblock.freeBlocks },
+      rsx11m: { label: rsx.label, magic: rsx.superblock.magicOctal, inodes: rsx.inodes.length, freeBlocks: rsx.superblock.freeBlocks },
+    },
   }, null, 2));
 }

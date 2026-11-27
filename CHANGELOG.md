@@ -2,6 +2,12 @@
 
 All notable changes to `awesome-os/demos` are documented in this file.
 
+## [0.2.0] - 2026-11-27
+
+### Added
+- `arch/pdp11/`: Clean-room Unix V6 (`v6-rk05`) & RSX-11M (`rsx11m-rx01`) synthetic disk image presets, RK05/RX01 superblock/inode/directory parsers, octal+hex+ASCII block dump viewer, and PDP-11/40 MMU (`KPAR0..KPAR7`, `MMR0`) & UNIBUS bus-cycle inspector.
+- `arch/graphics/`: Interactive WebGPU WGSL Shader Pipeline & Register Debugger with 4 toggleable compute passes, live register/tile probe (`wgId`, `subpixelMask`, `hzbMipLevel`, `restirM`, `restirWeight`, `splatAlpha`, `visTileHitRate`), WGSL disassembly viewer, and 5 visual debug overlay modes.
+
 ## [0.1.0] - 2026-11-27
 
 ### Added

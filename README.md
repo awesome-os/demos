@@ -8,9 +8,9 @@
 
 | Architecture Demo | Directory | Live URL | Key Technologies |
 | :--- | :--- | :--- | :--- |
-| **PDP-11/40 UNIBUS Cockpit** | [`arch/pdp11/`](arch/pdp11/README.md) | https://awesome-os.github.io/demos/arch/pdp11/ | `<b8g-pdp11-taskmgr>`, octal ISA, KL11 UART (`0177564`/`0177566`), MMIO `0177000..0177010`, `b8g-pdp11.wasm` |
+| **PDP-11/40 UNIBUS Cockpit** | [`arch/pdp11/`](arch/pdp11/README.md) | https://awesome-os.github.io/demos/arch/pdp11/ | `<b8g-pdp11-taskmgr>`, octal ISA, Unix V6 RK05 & RSX-11M RX01 disk inspector, MMU `KPAR/KPDR`, `b8g-pdp11.wasm` |
 | **Phosphor 3D Task Manager** | [`arch/task-manager/`](arch/task-manager/README.md) | https://awesome-os.github.io/demos/arch/task-manager/ | `<b8g-task-manager>`, 4 phosphor themes, 12 destinations, tri-state `measured`/`unsupported`/`gap`, `.b8gtrace` |
-| **VisBuf / ORCA / 3DGS Graphics** | [`arch/graphics/`](arch/graphics/README.md) | https://awesome-os.github.io/demos/arch/graphics/ | `<b8g-graphics-demo>`, 64-bit CuRast VisBuf, Two-Pass HZB, ORCA + ReSTIR GI, `7,060 B` Neural BRDF, 3DGS |
+| **VisBuf / ORCA / 3DGS Graphics** | [`arch/graphics/`](arch/graphics/README.md) | https://awesome-os.github.io/demos/arch/graphics/ | `<b8g-graphics-demo>`, WebGPU WGSL Shader Pipeline & Register Debugger, 5 debug overlays, VisBuf + ORCA + Neural BRDF + 3DGS |
 | **Demos Landing Hub** | [`index.html`](index.html) | https://awesome-os.github.io/demos/ | `<b8g-demo-hub>` glassmorphism switcher & sparse checkout generator |
 
 ---

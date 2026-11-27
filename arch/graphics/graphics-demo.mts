@@ -48,6 +48,83 @@ export interface NeuralBrdfOutput {
   readonly metallic: number;
 }
 
+export type ShaderPassId = 'hiz-cull' | 'visbuf-decode' | 'orca-restir' | 'neural-3dgs';
+
+export type DebugOverlayMode =
+  | 'final-composite'
+  | 'visbuf-triangle-id'
+  | 'hzb-depth-mips'
+  | 'restir-variance-heatmap'
+  | '3dgs-overdraw';
+
+export interface DebugOverlayDescriptor {
+  readonly id: DebugOverlayMode;
+  readonly label: string;
+  readonly description: string;
+}
+
+export interface ShaderPassDescriptor {
+  readonly id: ShaderPassId;
+  readonly stageIndex: 1 | 2 | 3 | 4;
+  readonly title: string;
+  readonly entryPoint: string;
+  readonly workgroupSize: readonly [number, number, number];
+  readonly bindings: readonly string[];
+  readonly wgslSource: string;
+  readonly description: string;
+}
+
+export interface ShaderRegisterSnapshot {
+  readonly passId: ShaderPassId;
+  readonly enabled: boolean;
+  readonly wgId: readonly [number, number, number];
+  readonly subpixelMask: number;
+  readonly subpixelMaskHex: string;
+  readonly hzbMipLevel: number;
+  readonly restirM: number;
+  readonly restirWeight: number;
+  readonly splatAlpha: number;
+  readonly visTileHitRate: number;
+  readonly gpuTimeUs: number;
+  readonly vgprCount: number;
+  readonly sharedMemBytes: number;
+}
+
+export interface ShaderPipelineDebugState {
+  readonly enabledPasses: Readonly<Record<ShaderPassId, boolean>>;
+  readonly selectedPass: ShaderPassId;
+  readonly overlayMode: DebugOverlayMode;
+  readonly probeTile: readonly [number, number];
+  readonly orbit: number;
+  readonly splatCount: number;
+  readonly mlpSeed: number;
+  readonly hzbMipInspect: number;
+}
+
+export interface ShaderPassTiming {
+  readonly passId: ShaderPassId;
+  readonly stageIndex: number;
+  readonly title: string;
+  readonly enabled: boolean;
+  readonly timeMs: number;
+}
+
+export interface ShaderPipelineInspection {
+  readonly state: ShaderPipelineDebugState;
+  readonly totalFrameMs: number;
+  readonly activePassCount: number;
+  readonly culledPct: number;
+  readonly orcaCells: number;
+  readonly earlyDepthCuts: number;
+  readonly overdrawMax: number;
+  readonly restirMaxM: number;
+  readonly registers: readonly ShaderRegisterSnapshot[];
+  readonly activeRegisters: ShaderRegisterSnapshot;
+  readonly passTimings: readonly ShaderPassTiming[];
+  readonly selectedPassMeta: ShaderPassDescriptor;
+  readonly wgslAnnotatedLines: readonly string[];
+}
+
 export function packVisibilityId(depthU32: number, instanceId: number, triangleId: number): bigint {
   const hi = BigInt(depthU32 >>> 0) << 32n;
   const lo = (((instanceId & 0xffff) << 16) | (triangleId & 0xffff)) >>> 0;
@@ -228,6 +305,276 @@ export class CompactNeuralBrdfMlp {
   }
 }
 
+export const DEBUG_OVERLAY_MODES: readonly DebugOverlayDescriptor[] = [
+  {
+    id: 'final-composite',
+    label: 'Final Composite',
+    description: '64-bit VisBuf geometry + 7,060 B Neural BRDF shading + 16x16 tiled 3DGS front-to-back composite with early depth cuts.',
+  },
+  {
+    id: 'visbuf-triangle-id',
+    label: 'VisBuf Triangle ID',
+    description: 'Unpacked (depthU32, instanceId, triangleId) deterministic visibility buffer keys with 8x8 workgroup tile boundaries.',
+  },
+  {
+    id: 'hzb-depth-mips',
+    label: 'HZB Depth Mips',
+    description: 'Two-Pass Hierarchical Max-Z depth pyramid (Mip 0..4) showing occluded meshlet bounds and disocclusion recovery.',
+  },
+  {
+    id: 'restir-variance-heatmap',
+    label: 'ReSTIR Variance Heatmap',
+    description: 'ORCA quantized cell radiance + temporal/spatial ReSTIR GI reservoir weight M convergence and thin-wall normal gating.',
+  },
+  {
+    id: '3dgs-overdraw',
+    label: '3DGS Overdraw',
+    description: 'Per-tile Gaussian splat evaluation density and alpha-transmittance early-termination heat map.',
+  },
+];
+
+export const SHADER_PIPELINE_PASSES: readonly ShaderPassDescriptor[] = [
+  {
+    id: 'hiz-cull',
+    stageIndex: 1,
+    title: '1. VisBuf Hi-Z Culling',
+    entryPoint: 'cs_hiz_cull',
+    workgroupSize: [64, 1, 1],
+    bindings: ['@group(0) @binding(0) meshletBounds: array<vec4<f32>>', '@group(0) @binding(1) hzbPyramid: texture_2d<f32>', '@group(0) @binding(2) indirectCmds: array<atomic<u32>>'],
+    description: 'Projects meshlet bounding spheres against the Two-Pass Hierarchical Max-Z depth pyramid and appends surviving draws.',
+    wgslSource: [
+      'struct MeshletBound { centerRadius: vec4<f32>, instanceTri: vec2<u32> };',
+      '@group(0) @binding(0) var<storage, read> bounds: array<MeshletBound>;',
+      '@group(0) @binding(1) var hzbTex: texture_2d<f32>;',
+      '@group(0) @binding(2) var<storage, read_write> drawCount: atomic<u32>;',
+      '@compute @workgroup_size(64, 1, 1)',
+      'fn cs_hiz_cull(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wgId: vec3<u32>) {',
+      '  let idx = gid.x;',
+      '  let b = bounds[idx];',
+      '  let mip = clamp(u32(log2(max(1.0, b.centerRadius.w * 16.0))), 0u, 4u);',
+      '  let maxZ = textureLoad(hzbTex, vec2<i32>(i32(wgId.x), i32(mip)), i32(mip)).r;',
+      '  if (b.centerRadius.z <= maxZ) {',
+      '    atomicAdd(&drawCount, 1u);',
+      '  }',
+      '}',
+    ].join('\n'),
+  },
+  {
+    id: 'visbuf-decode',
+    stageIndex: 2,
+    title: '2. Visibility Buffer 64-bit Decode',
+    entryPoint: 'cs_visbuf_decode',
+    workgroupSize: [8, 8, 1],
+    bindings: ['@group(0) @binding(0) visBufferLo: array<u32>', '@group(0) @binding(1) visBufferHi: array<u32>', '@group(0) @binding(2) gBaryOut: texture_storage_2d<rgba16float, write>'],
+    description: 'Decodes 64-bit atomicMin visibility IDs (depthU32, instanceId, triangleId) and derives analytical barycentric gradients.',
+    wgslSource: [
+      '@group(0) @binding(0) var<storage, read> visBufLo: array<u32>;',
+      '@group(0) @binding(1) var<storage, read> visBufHi: array<u32>;',
+      '@group(0) @binding(2) var baryOut: texture_storage_2d<rgba16float, write>;',
+      '@compute @workgroup_size(8, 8, 1)',
+      'fn cs_visbuf_decode(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) lane: u32) {',
+      '  let pix = gid.y * 512u + gid.x;',
+      '  let packedLo = visBufLo[pix];',
+      '  let instanceId = (packedLo >> 16u) & 0xFFFFu;',
+      '  let triangleId = packedLo & 0xFFFFu;',
+      '  let depthU32 = visBufHi[pix];',
+      '  let subpixelMask = (1u << (lane & 31u)) ^ (triangleId & 0xFFu);',
+      '  textureStore(baryOut, vec2<i32>(gid.xy), vec4<f32>(f32(instanceId), f32(triangleId), f32(depthU32), f32(subpixelMask)));',
+      '}',
+    ].join('\n'),
+  },
+  {
+    id: 'orca-restir',
+    stageIndex: 3,
+    title: '3. ORCA+ReSTIR Temporal/Spatial Reservoir',
+    entryPoint: 'cs_orca_restir',
+    workgroupSize: [8, 8, 1],
+    bindings: ['@group(0) @binding(0) orcaCells: array<vec4<f32>>', '@group(0) @binding(1) reservoirs: array<vec4<f32>>', '@group(0) @binding(2) giOut: texture_storage_2d<rgba16float, write>'],
+    description: 'Hashes world-space + quantized normal into stateless ORCA radiance cells and resamples temporal/spatial ReSTIR GI reservoirs.',
+    wgslSource: [
+      'struct Reservoir { wSum: f32, M: f32, weight: f32, targetPdf: f32 };',
+      '@group(0) @binding(0) var<storage, read> orcaCells: array<vec4<f32>>;',
+      '@group(0) @binding(1) var<storage, read_write> reservoirs: array<Reservoir>;',
+      '@group(0) @binding(2) var giOut: texture_storage_2d<rgba16float, write>;',
+      '@compute @workgroup_size(8, 8, 1)',
+      'fn cs_orca_restir(@builtin(global_invocation_id) gid: vec3<u32>) {',
+      '  let idx = gid.y * 512u + gid.x;',
+      '  var r = reservoirs[idx];',
+      '  let cell = orcaCells[idx & 1023u];',
+      '  let mClamped = min(r.M + 1.0, 24.0);',
+      '  r.M = mClamped;',
+      '  r.weight = r.wSum / max(1e-4, mClamped * max(r.targetPdf, 1e-4));',
+      '  reservoirs[idx] = r;',
+      '  textureStore(giOut, vec2<i32>(gid.xy), vec4<f32>(cell.rgb * r.weight, r.M));',
+      '}',
+    ].join('\n'),
+  },
+  {
+    id: 'neural-3dgs',
+    stageIndex: 4,
+    title: '4. Neural BRDF + 3DGS Splat Composite',
+    entryPoint: 'cs_neural_3dgs',
+    workgroupSize: [16, 16, 1],
+    bindings: ['@group(0) @binding(0) mlpWeights: array<f32>', '@group(0) @binding(1) splats: array<vec4<f32>>', '@group(0) @binding(2) colorOut: texture_storage_2d<rgba8unorm, write>'],
+    description: 'Evaluates the 7,060 B Neural BRDF MLP in workgroup shared memory and alpha-composites 16x16 tiled 3D Gaussians with early VisBuf depth termination.',
+    wgslSource: [
+      'var<workgroup> wgMlpWeights: array<f32, 1765>;',
+      '@group(0) @binding(0) var<storage, read> mlpSrc: array<f32>;',
+      '@group(0) @binding(1) var<storage, read> splats: array<vec4<f32>>;',
+      '@group(0) @binding(2) var colorOut: texture_storage_2d<rgba8unorm, write>;',
+      '@compute @workgroup_size(16, 16, 1)',
+      'fn cs_neural_3dgs(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {',
+      '  if (tid < 256u) { wgMlpWeights[tid] = mlpSrc[tid]; }',
+      '  workgroupBarrier();',
+      '  var transmittance = 1.0;',
+      '  let splatAlpha = clamp(splats[tid & 63u].a, 0.0, 0.99);',
+      '  transmittance = transmittance * (1.0 - splatAlpha);',
+      '  textureStore(colorOut, vec2<i32>(gid.xy), vec4<f32>(wgMlpWeights[0], wgMlpWeights[1], 1.0 - transmittance, 1.0));',
+      '}',
+    ].join('\n'),
+  },
+];
+
+const PASS_BY_ID: Readonly<Record<ShaderPassId, ShaderPassDescriptor>> = {
+  'hiz-cull': SHADER_PIPELINE_PASSES[0],
+  'visbuf-decode': SHADER_PIPELINE_PASSES[1],
+  'orca-restir': SHADER_PIPELINE_PASSES[2],
+  'neural-3dgs': SHADER_PIPELINE_PASSES[3],
+};
+
+export function createDefaultPipelineDebugState(
+  overrides: Partial<ShaderPipelineDebugState> = {},
+): ShaderPipelineDebugState {
+  return {
+    enabledPasses: overrides.enabledPasses ?? {
+      'hiz-cull': true,
+      'visbuf-decode': true,
+      'orca-restir': true,
+      'neural-3dgs': true,
+    },
+    selectedPass: overrides.selectedPass ?? 'visbuf-decode',
+    overlayMode: overrides.overlayMode ?? 'final-composite',
+    probeTile: overrides.probeTile ?? [4, 3],
+    orbit: overrides.orbit ?? 0.45,
+    splatCount: overrides.splatCount ?? 28,
+    mlpSeed: overrides.mlpSeed ?? 26,
+    hzbMipInspect: overrides.hzbMipInspect ?? 2,
+  };
+}
+
+export function toggleShaderPass(
+  state: ShaderPipelineDebugState,
+  passId: ShaderPassId,
+  enabled?: boolean,
+): ShaderPipelineDebugState {
+  const nextVal = enabled ?? !state.enabledPasses[passId];
+  return {
+    ...state,
+    enabledPasses: {
+      ...state.enabledPasses,
+      [passId]: nextVal,
+    },
+  };
+}
+
+export function formatWgslDisassembly(passId: ShaderPassId): readonly string[] {
+  const pass = PASS_BY_ID[passId];
+  return pass.wgslSource
+    .split('\n')
+    .map((line, idx) => `${String(idx + 1).padStart(2, '0')} | ${line}`);
+}
+
+export function inspectShaderRegisters(
+  state: ShaderPipelineDebugState,
+  passId: ShaderPassId = state.selectedPass,
+): ShaderRegisterSnapshot {
+  const enabled = state.enabledPasses[passId];
+  const [tx, ty] = state.probeTile;
+  const tileX = Math.max(0, Math.min(63, Math.trunc(tx)));
+  const tileY = Math.max(0, Math.min(63, Math.trunc(ty)));
+  const tileHash = mixHash32(((tileX + 1) * 73856093) ^ ((tileY + 1) * 19349663) ^ (state.mlpSeed * 83492791));
+  const hzbOn = state.enabledPasses['hiz-cull'];
+  const visOn = state.enabledPasses['visbuf-decode'];
+  const orcaOn = state.enabledPasses['orca-restir'];
+  const gsOn = state.enabledPasses['neural-3dgs'];
+
+  const subpixelMask = enabled && visOn ? ((tileHash & 0x0fff) | 0x0015) : 0;
+  const hzbMipLevel = enabled && hzbOn ? Math.max(0, Math.min(4, Math.trunc(state.hzbMipInspect))) : 0;
+  const restirM = enabled && orcaOn ? 4 + (tileHash % 21) : 0;
+  const restirWeight = enabled && orcaOn ? Number((0.42 + ((tileHash >>> 5) % 95) / 100).toFixed(3)) : 0;
+  const splatAlpha = enabled && gsOn
+    ? Number(Math.min(0.98, 0.14 + (state.splatCount / 48) * 0.58 + ((tileHash >>> 9) % 25) / 100).toFixed(3))
+    : 0;
+  const visTileHitRate = enabled && visOn
+    ? Number((hzbOn ? 0.72 + ((tileHash >>> 13) % 27) / 100 : 0.44 + ((tileHash >>> 13) % 25) / 100).toFixed(3))
+    : 0;
+
+  const passSpecs: Readonly<Record<ShaderPassId, { wg: readonly [number, number, number]; us: number; vgpr: number; shm: number }>> = {
+    'hiz-cull': { wg: [tileX, 0, 0], us: 180, vgpr: 18, shm: 512 },
+    'visbuf-decode': { wg: [tileX, tileY, 0], us: 420, vgpr: 32, shm: 1024 },
+    'orca-restir': { wg: [tileX, tileY, 0], us: 890, vgpr: 44, shm: 2048 },
+    'neural-3dgs': { wg: [tileX >> 1, tileY >> 1, 0], us: 1140, vgpr: 52, shm: 7060 },
+  };
+  const spec = passSpecs[passId];
+  return {
+    passId,
+    enabled,
+    wgId: spec.wg,
+    subpixelMask,
+    subpixelMaskHex: `0x${subpixelMask.toString(16).padStart(4, '0')}`,
+    hzbMipLevel,
+    restirM,
+    restirWeight,
+    splatAlpha,
+    visTileHitRate,
+    gpuTimeUs: enabled ? spec.us : 0,
+    vgprCount: enabled ? spec.vgpr : 0,
+    sharedMemBytes: enabled ? spec.shm : 0,
+  };
+}
+
+export function simulateShaderPipelineStep(state: ShaderPipelineDebugState): ShaderPipelineInspection {
+  const registers = SHADER_PIPELINE_PASSES.map((p) => inspectShaderRegisters(state, p.id));
+  const passTimings: ShaderPassTiming[] = SHADER_PIPELINE_PASSES.map((p, idx) => {
+    const reg = registers[idx];
+    return {
+      passId: p.id,
+      stageIndex: p.stageIndex,
+      title: p.title,
+      enabled: reg.enabled,
+      timeMs: Number((reg.gpuTimeUs / 1000).toFixed(3)),
+    };
+  });
+  const totalFrameMs = Number(passTimings.reduce((acc, t) => acc + t.timeMs, 0).toFixed(3));
+  const activePassCount = passTimings.filter((t) => t.enabled).length;
+  const culledPct = state.enabledPasses['hiz-cull']
+    ? (state.overlayMode === 'hzb-depth-mips' ? 25.0 : 18.5)
+    : 0;
+  const orcaCells = state.enabledPasses['orca-restir'] ? 16 + (state.splatCount >> 1) : 0;
+  const earlyDepthCuts = state.enabledPasses['neural-3dgs'] && state.enabledPasses['visbuf-decode']
+    ? Math.max(1, Math.round(state.splatCount * 0.43))
+    : 0;
+  const overdrawMax = state.enabledPasses['neural-3dgs'] ? Math.max(1, Math.ceil(state.splatCount / 4)) : 0;
+  const restirMaxM = state.enabledPasses['orca-restir'] ? 24 : 0;
+  const activeRegisters = registers.find((r) => r.passId === state.selectedPass) ?? registers[0];
+
+  return {
+    state,
+    totalFrameMs,
+    activePassCount,
+    culledPct,
+    orcaCells,
+    earlyDepthCuts,
+    overdrawMax,
+    restirMaxM,
+    registers,
+    activeRegisters,
+    passTimings,
+    selectedPassMeta: PASS_BY_ID[state.selectedPass],
+    wgslAnnotatedLines: formatWgslDisassembly(state.selectedPass),
+  };
+}
+
 export function runGraphicsDemoBenchmark(): {
   readonly packedVisIdHex: string;
   readonly unpacked: UnpackedVisibilityId;
@@ -236,6 +583,9 @@ export function runGraphicsDemoBenchmark(): {
   readonly thinWallBlocked: boolean;
   readonly mlpBytes: number;
   readonly mlpSample: NeuralBrdfOutput;
+  readonly shaderPassCount: number;
+  readonly overlayModeCount: number;
+  readonly defaultInspection: ShaderPipelineInspection;
 } {
   const vis = packVisibilityId(0x2468ace0, 7, 42);
   const unpacked = unpackVisibilityId(vis);
@@ -243,6 +593,7 @@ export function runGraphicsDemoBenchmark(): {
   const orcaHash = hashCellKey(1.2, 0.5, -0.8, 0, 1, 0, 0.25);
   const thinWall = computeNeighborCompatibility([0, 0, 0], [0, 0, 1], [0, 0, -0.02], [0, 0, -1]);
   const mlp = new CompactNeuralBrdfMlp(2026);
+  const defaultInspection = simulateShaderPipelineStep(createDefaultPipelineDebugState());
   return {
     packedVisIdHex: `0x${vis.toString(16)}`,
     unpacked,
@@ -251,6 +602,9 @@ export function runGraphicsDemoBenchmark(): {
     thinWallBlocked: !thinWall.compatible,
     mlpBytes: mlp.byteLength,
     mlpSample: mlp.evaluate(0.5, 0.5, [0, 0, 1], [0, 0, 1]),
+    shaderPassCount: SHADER_PIPELINE_PASSES.length,
+    overlayModeCount: DEBUG_OVERLAY_MODES.length,
+    defaultInspection,
   };
 }
 

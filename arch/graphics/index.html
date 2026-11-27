@@ -3,107 +3,268 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>B8G Next-Gen Graphics — VisBuf + ORCA + Neural BRDF + 3DGS</title>
+  <title>B8G Next-Gen Graphics — WebGPU Shader Debugger &amp; VisBuf / 3DGS</title>
   <style>
-    :root { --bg:#050811; --panel:#0f172a; --fg:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; --violet:#c084fc; --border:#1e293b; }
+    :root { --bg:#050811; --panel:#0f172a; --fg:#f1f5f9; --muted:#94a3b8; --accent:#38bdf8; --violet:#c084fc; --green:#34d399; --amber:#fbbf24; --border:#1e293b; }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--bg); color: var(--fg); }
-    b8g-graphics-demo { display: block; min-height: 100vh; padding: 20px; max-width: 1180px; margin: 0 auto; }
+    b8g-graphics-demo { display: block; min-height: 100vh; padding: 20px; max-width: 1260px; margin: 0 auto; }
     .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
-    .brand { font-size: 1.08rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .brand { font-size: 1.05rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     .back-link { color: var(--muted); text-decoration: none; font-size: 0.82rem; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; }
     .back-link:hover { color: var(--accent); border-color: var(--accent); }
-    .modes { display: flex; flex-wrap: wrap; gap: 8px; }
-    button.mode-btn { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 0.8rem; cursor: pointer; }
-    button.mode-btn[data-active="true"] { background: var(--accent); color: #050811; border-color: var(--accent); font-weight: 700; }
-    .layout { display: grid; grid-template-columns: 1.45fr 1fr; gap: 16px; }
-    @media (max-width: 880px) { .layout { grid-template-columns: 1fr; } }
+    .modes { display: flex; flex-wrap: wrap; gap: 7px; }
+    button.mode-btn, button.ctrl-btn { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 0.78rem; cursor: pointer; }
+    button.mode-btn[data-active="true"], button.ctrl-btn[data-active="true"] { background: var(--accent); color: #050811; border-color: var(--accent); font-weight: 700; }
+    button.ctrl-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .layout { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } }
+    .col { display: grid; gap: 16px; }
     .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-    .panel h2 { margin: 0 0 10px; font-size: 0.9rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }
-    canvas { width: 100%; height: 340px; border-radius: 8px; border: 1px solid var(--border); display: block; background: #02040a; cursor: grab; }
-    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-    .stat { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: rgba(2,6,23,0.5); }
-    .stat-k { font-size: 0.72rem; color: var(--muted); }
-    .stat-v { font-size: 0.95rem; font-weight: 700; color: var(--accent); margin-top: 2px; }
-    .ctrl-list { display: grid; gap: 10px; font-size: 0.82rem; }
-    .ctrl-row { display: grid; grid-template-columns: 125px 1fr 48px; align-items: center; gap: 8px; }
-    .note { margin-top: 10px; font-size: 0.78rem; color: var(--muted); line-height: 1.5; }
+    .panel h2 { margin: 0 0 10px; font-size: 0.88rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+    canvas { width: 100%; height: 320px; border-radius: 8px; border: 1px solid var(--border); display: block; background: #02040a; cursor: crosshair; }
+    .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+    .stat { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: rgba(2,6,23,0.5); }
+    .stat-k { font-size: 0.69rem; color: var(--muted); }
+    .stat-v { font-size: 0.9rem; font-weight: 700; color: var(--accent); margin-top: 2px; }
+    .ctrl-list { display: grid; gap: 8px; font-size: 0.8rem; }
+    .ctrl-row { display: grid; grid-template-columns: 120px 1fr 48px; align-items: center; gap: 8px; }
+    .pass-list { display: grid; gap: 8px; }
+    .pass-row { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: rgba(2,6,23,0.45); display: grid; gap: 6px; }
+    .pass-row[data-selected="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(56,189,248,0.28); }
+    .pass-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.8rem; }
+    .pass-bar-wrap { height: 6px; background: rgba(148,163,184,0.14); border-radius: 999px; overflow: hidden; }
+    .pass-bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--violet)); transition: width 150ms ease; }
+    .reg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+    .reg-box { border: 1px solid var(--border); border-radius: 6px; padding: 7px 9px; background: rgba(2,6,23,0.55); }
+    .reg-name { font-size: 0.7rem; color: var(--muted); }
+    .reg-val { font-size: 0.88rem; color: var(--green); font-weight: 700; margin-top: 2px; }
+    .wgsl-pre { margin: 0; background: #020617; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 0.74rem; line-height: 1.48; color: #cbd5e1; max-height: 250px; overflow: auto; white-space: pre; }
+    .note { margin: 10px 0 0; font-size: 0.77rem; color: var(--muted); line-height: 1.45; }
+    .badge { font-size: 0.7rem; color: var(--amber); }
   </style>
 </head>
 <body>
-  <b8g-graphics-demo data-mode="hybrid">
+  <b8g-graphics-demo data-mode="final-composite" data-selected-pass="visbuf-decode">
     <div class="topbar">
       <div class="brand">
         <a class="back-link" href="../../">&larr; Demos Hub</a>
-        <span>B8G GRAPHICS :: VISBUF + ORCA/RESTIR + NEURAL BRDF + 3DGS</span>
+        <span>B8G GRAPHICS :: WEBGPU SHADER PIPELINE &amp; REGISTER DEBUGGER</span>
       </div>
       <div class="modes">
-        <button type="button" class="mode-btn" data-mode-btn="hybrid" data-active="true">Hybrid 3DGS + VisBuf</button>
-        <button type="button" class="mode-btn" data-mode-btn="visbuf" data-active="false">64-bit VisBuf IDs</button>
-        <button type="button" class="mode-btn" data-mode-btn="hzb" data-active="false">Two-Pass HZB</button>
-        <button type="button" class="mode-btn" data-mode-btn="orca" data-active="false">ORCA + ReSTIR GI</button>
+        <button type="button" class="mode-btn" data-overlay-btn="final-composite" data-active="true">Final Composite</button>
+        <button type="button" class="mode-btn" data-overlay-btn="visbuf-triangle-id" data-active="false">VisBuf Triangle ID</button>
+        <button type="button" class="mode-btn" data-overlay-btn="hzb-depth-mips" data-active="false">HZB Depth Mips</button>
+        <button type="button" class="mode-btn" data-overlay-btn="restir-variance-heatmap" data-active="false">ReSTIR Variance Heatmap</button>
+        <button type="button" class="mode-btn" data-overlay-btn="3dgs-overdraw" data-active="false">3DGS Overdraw</button>
+        <button type="button" class="ctrl-btn" data-action="toggle-spin" data-active="true">Auto-Spin</button>
       </div>
     </div>
 
     <div class="layout">
-      <section class="panel">
-        <h2>Interactive Hybrid Viewport (<span data-backend>Probing WebGPU...</span>)</h2>
-        <canvas width="480" height="300" data-gfx-canvas></canvas>
-      </section>
+      <div class="col">
+        <section class="panel">
+          <h2>
+            <span>Viewport (<span data-backend>Probing WebGPU...</span>)</span>
+            <span class="badge" data-probe-label>Probe Tile: (4, 3)</span>
+          </h2>
+          <canvas width="520" height="320" data-gfx-canvas></canvas>
+          <p class="note" data-mode-desc>
+            Final Composite: 64-bit VisBuf geometry + 7,060 B Neural BRDF shading + 16x16 tiled 3DGS front-to-back composite with early depth cuts. Click canvas to probe tile registers.
+          </p>
+        </section>
 
-      <section class="panel">
-        <h2>Pipeline Telemetry &amp; Controls</h2>
-        <div class="stat-grid">
-          <div class="stat"><div class="stat-k">Frame Time</div><div class="stat-v" data-stat-ms>0.0 ms</div></div>
-          <div class="stat"><div class="stat-k">HZB Culled</div><div class="stat-v" data-stat-culled>0%</div></div>
-          <div class="stat"><div class="stat-k">ORCA Cells</div><div class="stat-v" data-stat-orca>0</div></div>
-          <div class="stat"><div class="stat-k">Neural MLP</div><div class="stat-v">7,060 B (&le; 8 KB)</div></div>
-          <div class="stat"><div class="stat-k">3DGS Splats</div><div class="stat-v" data-stat-splats>28</div></div>
-          <div class="stat"><div class="stat-k">Early Depth Cuts</div><div class="stat-v" data-stat-early>0</div></div>
-        </div>
-        <div class="ctrl-list">
-          <label class="ctrl-row"><span>Camera Orbit</span><input type="range" min="0" max="628" value="45" data-orbit /></label>
-          <label class="ctrl-row"><span>3DGS Density</span><input type="range" min="4" max="48" value="28" data-splat-count /></label>
-          <label class="ctrl-row"><span>Neural Seed</span><input type="range" min="1" max="99" value="26" data-mlp-seed /></label>
-        </div>
-        <p class="note" data-mode-desc>
-          <strong>Hybrid Mode:</strong> Software 64-bit <code>atomicMin</code> Visibility Buffer resolves front-most
-          geometry + <code>7,060 B</code> sinusoidal Neural BRDF MLP shading, then composites <code>16x16</code>
-          tiled 3D Gaussians front-to-back with early depth termination against <code>visDepth</code>.
-        </p>
-      </section>
+        <section class="panel">
+          <h2>
+            <span>WGSL Compute Passes (Step-by-Step Toggle &amp; Timing)</span>
+            <span class="badge" data-pipeline-total>Total: 2.630 ms</span>
+          </h2>
+          <div class="pass-list" data-pass-list></div>
+        </section>
+      </div>
+
+      <div class="col">
+        <section class="panel">
+          <h2>Pipeline Telemetry &amp; Scene Controls</h2>
+          <div class="stat-grid">
+            <div class="stat"><div class="stat-k">Frame Time</div><div class="stat-v" data-stat-ms>0.0 ms</div></div>
+            <div class="stat"><div class="stat-k">HZB Culled</div><div class="stat-v" data-stat-culled>18.5%</div></div>
+            <div class="stat"><div class="stat-k">ORCA Cells</div><div class="stat-v" data-stat-orca>30</div></div>
+            <div class="stat"><div class="stat-k">Neural MLP</div><div class="stat-v">7,060 B (&le;8 KB)</div></div>
+            <div class="stat"><div class="stat-k">3DGS Splats</div><div class="stat-v" data-stat-splats>28</div></div>
+            <div class="stat"><div class="stat-k">Early Depth Cuts</div><div class="stat-v" data-stat-early>12</div></div>
+          </div>
+          <div class="ctrl-list">
+            <label class="ctrl-row"><span>Camera Orbit</span><input type="range" min="0" max="628" value="45" data-orbit /><span data-val-orbit>0.45</span></label>
+            <label class="ctrl-row"><span>3DGS Density</span><input type="range" min="4" max="48" value="28" data-splat-count /><span data-val-splats>28</span></label>
+            <label class="ctrl-row"><span>Neural Seed</span><input type="range" min="1" max="99" value="26" data-mlp-seed /><span data-val-seed>26</span></label>
+            <label class="ctrl-row"><span>HZB Mip Inspect</span><input type="range" min="0" max="4" value="2" data-hzb-mip /><span data-val-mip>Mip 2</span></label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>
+            <span>Synthetic Shader Registers (<span data-reg-pass>cs_visbuf_decode</span>)</span>
+            <button type="button" class="ctrl-btn" data-action="step-probe">Step Tile Probe</button>
+          </h2>
+          <div class="reg-grid" data-reg-grid></div>
+        </section>
+
+        <section class="panel">
+          <h2>
+            <span>WGSL Source Disassembly</span>
+            <span class="badge" data-wgsl-status>Software WGSL Twin Active</span>
+          </h2>
+          <div style="font-size:0.72rem;color:var(--muted);margin-bottom:8px;" data-wgsl-bindings></div>
+          <pre class="wgsl-pre" data-wgsl-viewer></pre>
+        </section>
+      </div>
     </div>
   </b8g-graphics-demo>
 
   <script type="module">
-    const MODE_DESC = {
-      hybrid: 'Hybrid Mode: 64-bit VisBuf resolves front-most geometry + 7,060 B Neural BRDF shading, then composites 3D Gaussians front-to-back with early depth termination.',
-      visbuf: '64-bit VisBuf IDs: Visualizes packed (depthU32, instanceId, triangleId) keys — each meshlet instance & triangle ID maps deterministically with zero G-buffer bloat.',
-      hzb: 'Two-Pass HZB: Hierarchical max-Z pyramid culls occluded meshlets in Pass 1 and recovers disoccluded geometry in Pass 2.',
-      orca: 'ORCA + ReSTIR GI: Quantized spatial+normal radiance cache cells (zero temporal ghosting) with thin-wall normal compatibility filtering.',
+    const OVERLAYS = {
+      'final-composite': 'Final Composite: 64-bit VisBuf geometry + 7,060 B Neural BRDF shading + 16x16 tiled 3DGS front-to-back composite with early depth cuts. Click canvas to inspect a tile.',
+      'visbuf-triangle-id': 'VisBuf Triangle ID: Unpacked (depthU32, instanceId, triangleId) deterministic visibility keys with 8x8 workgroup tile boundaries.',
+      'hzb-depth-mips': 'HZB Depth Mips: Two-Pass Hierarchical Max-Z pyramid (Mip 0..4) showing occluded meshlet bounds and disocclusion recovery.',
+      'restir-variance-heatmap': 'ReSTIR Variance Heatmap: ORCA quantized radiance cells + temporal/spatial ReSTIR GI reservoir M weight convergence heatmap.',
+      '3dgs-overdraw': '3DGS Overdraw: Per-tile Gaussian splat evaluation density and alpha-transmittance early-termination heat map.',
     };
+
+    const PASSES = [
+      {
+        id: 'hiz-cull', stage: 1, title: '1. VisBuf Hi-Z Culling', entry: 'cs_hiz_cull', us: 180, vgpr: 18, shm: 512,
+        bindings: '@binding(0) bounds | @binding(1) hzbTex | @binding(2) drawCount',
+        wgsl: [
+          'struct MeshletBound { centerRadius: vec4<f32>, instanceTri: vec2<u32> };',
+          '@group(0) @binding(0) var<storage, read> bounds: array<MeshletBound>;',
+          '@group(0) @binding(1) var hzbTex: texture_2d<f32>;',
+          '@group(0) @binding(2) var<storage, read_write> drawCount: atomic<u32>;',
+          '@compute @workgroup_size(64, 1, 1)',
+          'fn cs_hiz_cull(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(workgroup_id) wgId: vec3<u32>) {',
+          '  let idx = gid.x;',
+          '  let b = bounds[idx];',
+          '  let mip = clamp(u32(log2(max(1.0, b.centerRadius.w * 16.0))), 0u, 4u);',
+          '  let maxZ = textureLoad(hzbTex, vec2<i32>(i32(wgId.x), i32(mip)), i32(mip)).r;',
+          '  if (b.centerRadius.z <= maxZ) { atomicAdd(&drawCount, 1u); }',
+          '}',
+        ].join('\n'),
+      },
+      {
+        id: 'visbuf-decode', stage: 2, title: '2. Visibility Buffer 64-bit Decode', entry: 'cs_visbuf_decode', us: 420, vgpr: 32, shm: 1024,
+        bindings: '@binding(0) visBufLo | @binding(1) visBufHi | @binding(2) baryOut',
+        wgsl: [
+          '@group(0) @binding(0) var<storage, read> visBufLo: array<u32>;',
+          '@group(0) @binding(1) var<storage, read> visBufHi: array<u32>;',
+          '@group(0) @binding(2) var baryOut: texture_storage_2d<rgba16float, write>;',
+          '@compute @workgroup_size(8, 8, 1)',
+          'fn cs_visbuf_decode(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) lane: u32) {',
+          '  let pix = gid.y * 512u + gid.x;',
+          '  let packedLo = visBufLo[pix];',
+          '  let instanceId = (packedLo >> 16u) & 0xFFFFu;',
+          '  let triangleId = packedLo & 0xFFFFu;',
+          '  let depthU32 = visBufHi[pix];',
+          '  let subpixelMask = (1u << (lane & 31u)) ^ (triangleId & 0xFFu);',
+          '  textureStore(baryOut, vec2<i32>(gid.xy), vec4<f32>(f32(instanceId), f32(triangleId), f32(depthU32), f32(subpixelMask)));',
+          '}',
+        ].join('\n'),
+      },
+      {
+        id: 'orca-restir', stage: 3, title: '3. ORCA+ReSTIR Temporal/Spatial Reservoir', entry: 'cs_orca_restir', us: 890, vgpr: 44, shm: 2048,
+        bindings: '@binding(0) orcaCells | @binding(1) reservoirs | @binding(2) giOut',
+        wgsl: [
+          'struct Reservoir { wSum: f32, M: f32, weight: f32, targetPdf: f32 };',
+          '@group(0) @binding(0) var<storage, read> orcaCells: array<vec4<f32>>;',
+          '@group(0) @binding(1) var<storage, read_write> reservoirs: array<Reservoir>;',
+          '@group(0) @binding(2) var giOut: texture_storage_2d<rgba16float, write>;',
+          '@compute @workgroup_size(8, 8, 1)',
+          'fn cs_orca_restir(@builtin(global_invocation_id) gid: vec3<u32>) {',
+          '  let idx = gid.y * 512u + gid.x;',
+          '  var r = reservoirs[idx];',
+          '  let cell = orcaCells[idx & 1023u];',
+          '  let mClamped = min(r.M + 1.0, 24.0);',
+          '  r.M = mClamped;',
+          '  r.weight = r.wSum / max(1e-4, mClamped * max(r.targetPdf, 1e-4));',
+          '  reservoirs[idx] = r;',
+          '  textureStore(giOut, vec2<i32>(gid.xy), vec4<f32>(cell.rgb * r.weight, r.M));',
+          '}',
+        ].join('\n'),
+      },
+      {
+        id: 'neural-3dgs', stage: 4, title: '4. Neural BRDF + 3DGS Splat Composite', entry: 'cs_neural_3dgs', us: 1140, vgpr: 52, shm: 7060,
+        bindings: '@binding(0) mlpSrc | @binding(1) splats | @binding(2) colorOut',
+        wgsl: [
+          'var<workgroup> wgMlpWeights: array<f32, 1765>;',
+          '@group(0) @binding(0) var<storage, read> mlpSrc: array<f32>;',
+          '@group(0) @binding(1) var<storage, read> splats: array<vec4<f32>>;',
+          '@group(0) @binding(2) var colorOut: texture_storage_2d<rgba8unorm, write>;',
+          '@compute @workgroup_size(16, 16, 1)',
+          'fn cs_neural_3dgs(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {',
+          '  if (tid < 256u) { wgMlpWeights[tid] = mlpSrc[tid]; }',
+          '  workgroupBarrier();',
+          '  var transmittance = 1.0;',
+          '  let splatAlpha = clamp(splats[tid & 63u].a, 0.0, 0.99);',
+          '  transmittance = transmittance * (1.0 - splatAlpha);',
+          '  textureStore(colorOut, vec2<i32>(gid.xy), vec4<f32>(wgMlpWeights[0], wgMlpWeights[1], 1.0 - transmittance, 1.0));',
+          '}',
+        ].join('\n'),
+      },
+    ];
+
+    function mix32(h) {
+      let x = h >>> 0;
+      x ^= x >>> 16; x = Math.imul(x, 0x7feb352d) >>> 0;
+      x ^= x >>> 15; x = Math.imul(x, 0x846ca68b) >>> 0;
+      return (x ^ (x >>> 16)) >>> 0;
+    }
 
     class B8gGraphicsDemoElement extends HTMLElement {
       connectedCallback() {
         this.setAttribute('data-hydrated', 'true');
-        let mode = 'hybrid';
+        let overlayMode = 'final-composite';
+        let selectedPass = 'visbuf-decode';
+        let enabled = { 'hiz-cull': true, 'visbuf-decode': true, 'orca-restir': true, 'neural-3dgs': true };
+        let probeTile = [4, 3];
         let orbit = 0.45;
         let splatCount = 28;
         let mlpSeed = 26;
+        let hzbMip = 2;
         let autoSpin = true;
+        let gpuDevice = null;
 
         const canvas = this.querySelector('[data-gfx-canvas]');
         const ctx = canvas?.getContext('2d');
         const backendEl = this.querySelector('[data-backend]');
+        const wgslStatusEl = this.querySelector('[data-wgsl-status]');
+
+        const validateWgslInWebGpu = async () => {
+          if (!gpuDevice || !wgslStatusEl) return;
+          const p = PASSES.find((x) => x.id === selectedPass);
+          if (!p) return;
+          try {
+            const mod = gpuDevice.createShaderModule({ code: p.wgsl });
+            const info = mod.getCompilationInfo ? await mod.getCompilationInfo() : { messages: [] };
+            const errs = (info.messages || []).filter((m) => m.type === 'error').length;
+            wgslStatusEl.textContent = errs === 0
+              ? 'WebGPU WGSL Verified (' + p.entry + ', 0 errors)'
+              : 'WebGPU WGSL Diagnostics (' + errs + ' errors)';
+          } catch {
+            wgslStatusEl.textContent = 'Software WGSL Twin Active';
+          }
+        };
 
         if (navigator.gpu && navigator.gpu.requestAdapter) {
-          navigator.gpu.requestAdapter().then((ad) => {
-            if (backendEl) backendEl.textContent = ad ? 'WebGPU Adapter Ready + Software VisBuf' : 'Canvas2D Software VisBuf';
+          navigator.gpu.requestAdapter().then(async (ad) => {
+            if (backendEl) backendEl.textContent = ad ? 'WebGPU Adapter Ready + Software Debugger' : 'Canvas2D Software Debugger';
+            if (ad && ad.requestDevice) {
+              gpuDevice = await ad.requestDevice().catch(() => null);
+              validateWgslInWebGpu();
+            }
           }).catch(() => {
-            if (backendEl) backendEl.textContent = 'Canvas2D Software VisBuf';
+            if (backendEl) backendEl.textContent = 'Canvas2D Software Debugger';
           });
         } else if (backendEl) {
-          backendEl.textContent = 'Canvas2D Software VisBuf';
+          backendEl.textContent = 'Canvas2D Software Debugger';
         }
 
         const evalMlpTint = (u, v, seed) => {
@@ -113,6 +274,102 @@
           return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
         };
 
+        const computeRegisters = (passId) => {
+          const p = PASSES.find((x) => x.id === passId) || PASSES[1];
+          const [tx, ty] = probeTile;
+          const hash = mix32(((tx + 1) * 73856093) ^ ((ty + 1) * 19349663) ^ (mlpSeed * 83492791));
+          const on = enabled[passId];
+          const visOn = enabled['visbuf-decode'];
+          const hzbOn = enabled['hiz-cull'];
+          const orcaOn = enabled['orca-restir'];
+          const gsOn = enabled['neural-3dgs'];
+          const mask = on && visOn ? ((hash & 0x0fff) | 0x0015) : 0;
+          return {
+            pass: p,
+            wgId: p.id === 'hiz-cull' ? [tx, 0, 0] : p.id === 'neural-3dgs' ? [tx >> 1, ty >> 1, 0] : [tx, ty, 0],
+            subpixelMask: '0x' + mask.toString(16).padStart(4, '0'),
+            hzbMipLevel: on && hzbOn ? hzbMip : 0,
+            restirM: on && orcaOn ? 4 + (hash % 21) : 0,
+            restirWeight: on && orcaOn ? (0.42 + ((hash >>> 5) % 95) / 100).toFixed(3) : '0.000',
+            splatAlpha: on && gsOn ? Math.min(0.98, 0.14 + (splatCount / 48) * 0.58 + ((hash >>> 9) % 25) / 100).toFixed(3) : '0.000',
+            visTileHitRate: on && visOn ? ((hzbOn ? 72 + ((hash >>> 13) % 27) : 44 + ((hash >>> 13) % 25)) + '%') : '0%',
+            vgpr: on ? p.vgpr : 0,
+            shm: on ? p.shm : 0,
+          };
+        };
+
+        const renderDebuggerPanels = () => {
+          const passList = this.querySelector('[data-pass-list]');
+          if (passList) {
+            passList.innerHTML = PASSES.map((p) => {
+              const on = enabled[p.id];
+              const ms = on ? (p.us / 1000).toFixed(3) : '0.000';
+              const pct = on ? Math.min(100, (p.us / 1200) * 100) : 0;
+              return '<div class="pass-row" data-selected="' + (selectedPass === p.id) + '">' +
+                '<div class="pass-head">' +
+                '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
+                '<input type="checkbox" data-toggle-pass="' + p.id + '" ' + (on ? 'checked' : '') + ' />' +
+                '<strong>' + p.title + '</strong></label>' +
+                '<span style="display:flex;align-items:center;gap:8px;">' +
+                '<span>' + (on ? ms + ' ms' : 'BYPASSED') + '</span>' +
+                '<button type="button" class="ctrl-btn" data-inspect-pass="' + p.id + '" data-active="' + (selectedPass === p.id) + '">Inspect</button>' +
+                '</span></div>' +
+                '<div class="pass-bar-wrap"><div class="pass-bar" style="width:' + pct + '%;"></div></div>' +
+                '</div>';
+            }).join('');
+
+            passList.querySelectorAll('[data-toggle-pass]').forEach((cb) => {
+              cb.addEventListener('change', () => {
+                enabled[cb.getAttribute('data-toggle-pass')] = cb.checked;
+                renderDebuggerPanels();
+                renderFrame();
+              });
+            });
+            passList.querySelectorAll('[data-inspect-pass]').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                selectedPass = btn.getAttribute('data-inspect-pass');
+                this.setAttribute('data-selected-pass', selectedPass);
+                renderDebuggerPanels();
+                validateWgslInWebGpu();
+              });
+            });
+          }
+
+          const totalMs = PASSES.reduce((acc, p) => acc + (enabled[p.id] ? p.us / 1000 : 0), 0);
+          const totEl = this.querySelector('[data-pipeline-total]');
+          if (totEl) totEl.textContent = 'Total: ' + totalMs.toFixed(3) + ' ms';
+
+          const r = computeRegisters(selectedPass);
+          const regPassEl = this.querySelector('[data-reg-pass]');
+          if (regPassEl) regPassEl.textContent = r.pass.entry;
+          const probeLbl = this.querySelector('[data-probe-label]');
+          if (probeLbl) probeLbl.textContent = 'Probe Tile: (' + probeTile[0] + ', ' + probeTile[1] + ')';
+
+          const regGrid = this.querySelector('[data-reg-grid]');
+          if (regGrid) {
+            const cells = [
+              ['wgId', '(' + r.wgId.join(', ') + ')'],
+              ['subpixelMask', r.subpixelMask],
+              ['hzbMipLevel', 'Mip ' + r.hzbMipLevel],
+              ['restirM', String(r.restirM)],
+              ['restirWeight', r.restirWeight],
+              ['splatAlpha', r.splatAlpha],
+              ['visTileHitRate', r.visTileHitRate],
+              ['VGPR / Shared', r.vgpr + ' / ' + r.shm + ' B'],
+            ];
+            regGrid.innerHTML = cells.map(([k, v]) =>
+              '<div class="reg-box"><div class="reg-name">' + k + '</div><div class="reg-val">' + v + '</div></div>'
+            ).join('');
+          }
+
+          const bindEl = this.querySelector('[data-wgsl-bindings]');
+          if (bindEl) bindEl.textContent = r.pass.bindings;
+          const wgslEl = this.querySelector('[data-wgsl-viewer]');
+          if (wgslEl) {
+            wgslEl.textContent = r.pass.wgsl.split('\n').map((ln, idx) => String(idx + 1).padStart(2, '0') + ' | ' + ln).join('\n');
+          }
+        };
+
         const renderFrame = () => {
           if (!ctx || !canvas) return;
           const t0 = performance.now();
@@ -120,26 +377,22 @@
           ctx.fillStyle = '#040711';
           ctx.fillRect(0, 0, w, h);
 
-          // 4 rotating 3D boxes in scene -> projected & depth-sorted
           const boxes = [
             { x: 0, y: 0, z: 0, s: 0.9, id: 0, neural: true },
             { x: -1.65, y: -0.25, z: -0.35, s: 0.58, id: 1, neural: false },
             { x: 1.65, y: 0.15, z: 0.35, s: 0.62, id: 2, neural: false },
             { x: 0, y: -0.95, z: 0, s: 1.4, id: 3, neural: false },
           ];
-
           const ca = Math.cos(orbit), sa = Math.sin(orbit);
           const proj = (px, py, pz) => {
             const rx = px * ca - pz * sa;
             const rz = px * sa + pz * ca + 4.8;
             const sc = 340 / Math.max(1.2, rz);
-            return { sx: w * 0.5 + rx * sc, sy: h * 0.54 - py * sc, depth: rz, sc };
+            return { sx: w * 0.5 + rx * sc, sy: h * 0.55 - py * sc, depth: rz, sc };
           };
-
           const sortedBoxes = boxes.map((b) => ({ ...b, p: proj(b.x, b.y, b.z) })).sort((a, b) => b.p.depth - a.p.depth);
-          let earlyCuts = 0;
 
-          // Draw background splats behind depth
+          let earlyCuts = 0;
           const splats = Array.from({ length: splatCount }, (_, i) => {
             const ang = (i / splatCount) * Math.PI * 2 + orbit * 0.6;
             const rad = 1.45 + (i % 3) * 0.32;
@@ -150,77 +403,172 @@
           }).sort((a, b) => b.depth - a.depth);
 
           const drawSplat = (sp) => {
-            if (mode !== 'hybrid' && mode !== 'orca') return;
-            const r = Math.max(6, sp.sc * 0.22);
+            if (!enabled['neural-3dgs']) return;
+            if (overlayMode !== 'final-composite' && overlayMode !== '3dgs-overdraw' && overlayMode !== 'restir-variance-heatmap') return;
+            const r = Math.max(7, sp.sc * 0.23);
             const grad = ctx.createRadialGradient(sp.sx, sp.sy, 0, sp.sx, sp.sy, r);
-            const hue = mode === 'orca' ? (sp.i * 18) % 60 + 30 : (sp.i * 23 + mlpSeed * 9) % 360;
-            grad.addColorStop(0, 'hsla(' + hue + ', 92%, 65%, 0.72)');
-            grad.addColorStop(1, 'hsla(' + hue + ', 92%, 65%, 0)');
+            if (overlayMode === '3dgs-overdraw') {
+              grad.addColorStop(0, 'rgba(244, 63, 94, 0.55)');
+              grad.addColorStop(0.6, 'rgba(251, 191, 36, 0.28)');
+              grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+            } else if (overlayMode === 'restir-variance-heatmap') {
+              const hue = (sp.i * 18) % 60 + 25;
+              grad.addColorStop(0, 'hsla(' + hue + ', 95%, 60%, 0.6)');
+              grad.addColorStop(1, 'hsla(' + hue + ', 95%, 60%, 0)');
+            } else {
+              const hue = (sp.i * 23 + mlpSeed * 9) % 360;
+              grad.addColorStop(0, 'hsla(' + hue + ', 92%, 65%, 0.72)');
+              grad.addColorStop(1, 'hsla(' + hue + ', 92%, 65%, 0)');
+            }
             ctx.fillStyle = grad;
             ctx.beginPath(); ctx.arc(sp.sx, sp.sy, r, 0, Math.PI * 2); ctx.fill();
           };
 
-          splats.filter((s) => s.depth >= 4.8).forEach((s) => { earlyCuts++; drawSplat(s); });
+          splats.filter((s) => s.depth >= 4.8).forEach((s) => {
+            if (enabled['neural-3dgs'] && enabled['visbuf-decode']) earlyCuts++;
+            drawSplat(s);
+          });
 
           sortedBoxes.forEach((b) => {
             const size = b.p.sc * b.s * 0.85;
             const x0 = b.p.sx - size * 0.5, y0 = b.p.sy - size * 0.5;
-            if (mode === 'visbuf') {
-              ctx.fillStyle = ['#38bdf8', '#c084fc', '#34d399', '#fbbf24'][b.id % 4];
-            } else if (mode === 'hzb') {
-              const g = Math.max(30, Math.min(240, Math.round(255 - (b.p.depth - 2.5) * 45)));
+            const bh = size * (b.id === 3 ? 0.18 : 1);
+
+            if (overlayMode === 'visbuf-triangle-id') {
+              const cA = ['#38bdf8', '#c084fc', '#34d399', '#fbbf24'][b.id % 4];
+              const cB = ['#0284c7', '#9333ea', '#059669', '#d97706'][b.id % 4];
+              ctx.fillStyle = enabled['visbuf-decode'] ? cA : '#1e293b';
+              ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0 + size, y0); ctx.lineTo(x0, y0 + bh); ctx.closePath(); ctx.fill();
+              ctx.fillStyle = enabled['visbuf-decode'] ? cB : '#0f172a';
+              ctx.beginPath(); ctx.moveTo(x0 + size, y0); ctx.lineTo(x0 + size, y0 + bh); ctx.lineTo(x0, y0 + bh); ctx.closePath(); ctx.fill();
+              ctx.fillStyle = '#fff'; ctx.font = '10px monospace';
+              ctx.fillText('I' + b.id + ':T' + (b.id * 2), x0 + 6, y0 + 14);
+            } else if (overlayMode === 'hzb-depth-mips') {
+              const g = Math.max(35, Math.min(240, Math.round(255 - (b.p.depth - 2.5) * 45)));
               ctx.fillStyle = 'rgb(' + g + ',' + g + ',' + g + ')';
-            } else if (mode === 'orca') {
-              ctx.fillStyle = 'rgba(251, 191, 36, 0.82)';
-            } else if (b.neural) {
-              const [nr, ng, nb] = evalMlpTint((orbit % 1), 0.5, mlpSeed);
-              ctx.fillStyle = 'rgb(' + nr + ',' + ng + ',' + nb + ')';
+              ctx.fillRect(x0, y0, size, bh);
+              ctx.strokeStyle = enabled['hiz-cull'] ? '#34d399' : '#f43f5e';
+              ctx.lineWidth = 1.5;
+              ctx.strokeRect(x0 - 3, y0 - 3, size + 6, bh + 6);
+              ctx.lineWidth = 1;
+            } else if (overlayMode === 'restir-variance-heatmap') {
+              const heat = enabled['orca-restir'] ? Math.max(0, Math.min(1, 1 - (b.p.depth - 3) * 0.22)) : 0.1;
+              const rr = Math.round(255 * heat), gg = Math.round(180 * (1 - Math.abs(heat - 0.5) * 2)), bb = Math.round(255 * (1 - heat));
+              ctx.fillStyle = 'rgb(' + rr + ',' + gg + ',' + bb + ')';
+              ctx.fillRect(x0, y0, size, bh);
+            } else if (overlayMode === '3dgs-overdraw') {
+              ctx.fillStyle = 'rgba(30, 41, 59, 0.72)';
+              ctx.fillRect(x0, y0, size, bh);
             } else {
-              ctx.fillStyle = '#334155';
+              if (!enabled['visbuf-decode']) {
+                ctx.fillStyle = '#0f172a';
+              } else if (b.neural && enabled['neural-3dgs']) {
+                const [nr, ng, nb] = evalMlpTint((orbit % 1), 0.5, mlpSeed);
+                ctx.fillStyle = 'rgb(' + nr + ',' + ng + ',' + nb + ')';
+              } else {
+                ctx.fillStyle = enabled['orca-restir'] ? '#475569' : '#1e293b';
+              }
+              ctx.fillRect(x0, y0, size, bh);
             }
-            ctx.fillRect(x0, y0, size, size * (b.id === 3 ? 0.18 : 1));
             ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-            ctx.strokeRect(x0, y0, size, size * (b.id === 3 ? 0.18 : 1));
+            ctx.strokeRect(x0, y0, size, bh);
           });
 
-          // Foreground 3DGS splats in front of VisBuf depth
           splats.filter((s) => s.depth < 4.8).forEach(drawSplat);
+
+          if (overlayMode === 'hzb-depth-mips') {
+            for (let m = 0; m < 5; m++) {
+              const bx = w - 34 - m * 24;
+              const sz = 22 - m * 3;
+              const shade = 220 - m * 38;
+              ctx.fillStyle = 'rgb(' + shade + ',' + shade + ',' + shade + ')';
+              ctx.fillRect(bx, 12, sz, sz);
+              ctx.strokeStyle = m === hzbMip ? '#38bdf8' : '#334155';
+              ctx.lineWidth = m === hzbMip ? 2 : 1;
+              ctx.strokeRect(bx, 12, sz, sz);
+            }
+            ctx.lineWidth = 1;
+            ctx.fillStyle = '#38bdf8';
+            ctx.font = '10px monospace';
+            ctx.fillText('HZB Mip ' + hzbMip, w - 135, 48);
+          }
+
+          // Draw Probe Tile Reticle (16x16 workgroup cell)
+          const cellW = w / 16, cellH = h / 12;
+          const rx = probeTile[0] * cellW, ry = probeTile[1] * cellH;
+          ctx.strokeStyle = 'rgba(56, 189, 248, 0.85)';
+          ctx.lineWidth = 1.5;
+          ctx.strokeRect(rx, ry, cellW, cellH);
+          ctx.lineWidth = 1;
 
           const ms = (performance.now() - t0).toFixed(2);
           this.querySelector('[data-stat-ms]').textContent = ms + ' ms';
-          this.querySelector('[data-stat-culled]').textContent = mode === 'hzb' ? '25.0%' : '18.5%';
-          this.querySelector('[data-stat-orca]').textContent = String(16 + (splatCount >> 1));
-          this.querySelector('[data-stat-splats]').textContent = String(splatCount);
+          this.querySelector('[data-stat-culled]').textContent = enabled['hiz-cull'] ? (overlayMode === 'hzb-depth-mips' ? '25.0%' : '18.5%') : '0.0%';
+          this.querySelector('[data-stat-orca]').textContent = enabled['orca-restir'] ? String(16 + (splatCount >> 1)) : '0';
+          this.querySelector('[data-stat-splats]').textContent = enabled['neural-3dgs'] ? String(splatCount) : '0';
           this.querySelector('[data-stat-early]').textContent = String(earlyCuts);
         };
 
-        this.querySelectorAll('[data-mode-btn]').forEach((btn) => {
+        this.querySelectorAll('[data-overlay-btn]').forEach((btn) => {
           btn.addEventListener('click', () => {
-            mode = btn.getAttribute('data-mode-btn');
-            this.setAttribute('data-mode', mode);
-            this.querySelectorAll('[data-mode-btn]').forEach((b) => b.setAttribute('data-active', b === btn ? 'true' : 'false'));
+            overlayMode = btn.getAttribute('data-overlay-btn');
+            this.setAttribute('data-mode', overlayMode);
+            this.querySelectorAll('[data-overlay-btn]').forEach((b) => b.setAttribute('data-active', b === btn ? 'true' : 'false'));
             const desc = this.querySelector('[data-mode-desc]');
-            if (desc) desc.textContent = MODE_DESC[mode];
+            if (desc) desc.textContent = OVERLAYS[overlayMode];
             renderFrame();
           });
         });
 
+        this.querySelector('[data-action="toggle-spin"]')?.addEventListener('click', (ev) => {
+          autoSpin = !autoSpin;
+          ev.target.setAttribute('data-active', autoSpin ? 'true' : 'false');
+        });
+        this.querySelector('[data-action="step-probe"]')?.addEventListener('click', () => {
+          probeTile = [(probeTile[0] + 1) % 16, (probeTile[1] + (probeTile[0] === 15 ? 1 : 0)) % 12];
+          renderDebuggerPanels();
+          renderFrame();
+        });
+
         this.querySelector('[data-orbit]')?.addEventListener('input', (ev) => {
           autoSpin = false;
+          this.querySelector('[data-action="toggle-spin"]')?.setAttribute('data-active', 'false');
           orbit = Number(ev.target.value) / 100;
+          this.querySelector('[data-val-orbit]').textContent = orbit.toFixed(2);
           renderFrame();
         });
         this.querySelector('[data-splat-count]')?.addEventListener('input', (ev) => {
           splatCount = Number(ev.target.value);
+          this.querySelector('[data-val-splats]').textContent = String(splatCount);
+          renderDebuggerPanels();
           renderFrame();
         });
         this.querySelector('[data-mlp-seed]')?.addEventListener('input', (ev) => {
           mlpSeed = Number(ev.target.value);
+          this.querySelector('[data-val-seed]').textContent = String(mlpSeed);
+          renderDebuggerPanels();
+          renderFrame();
+        });
+        this.querySelector('[data-hzb-mip]')?.addEventListener('input', (ev) => {
+          hzbMip = Number(ev.target.value);
+          this.querySelector('[data-val-mip]').textContent = 'Mip ' + hzbMip;
+          renderDebuggerPanels();
           renderFrame();
         });
 
         let dragging = false, lastX = 0;
-        canvas?.addEventListener('pointerdown', (e) => { dragging = true; autoSpin = false; lastX = e.clientX; });
+        canvas?.addEventListener('pointerdown', (e) => {
+          const rect = canvas.getBoundingClientRect();
+          const tx = Math.max(0, Math.min(15, Math.floor(((e.clientX - rect.left) / rect.width) * 16)));
+          const ty = Math.max(0, Math.min(11, Math.floor(((e.clientY - rect.top) / rect.height) * 12)));
+          probeTile = [tx, ty];
+          renderDebuggerPanels();
+          dragging = true;
+          autoSpin = false;
+          this.querySelector('[data-action="toggle-spin"]')?.setAttribute('data-active', 'false');
+          lastX = e.clientX;
+          renderFrame();
+        });
         window.addEventListener('pointerup', () => { dragging = false; });
         window.addEventListener('pointermove', (e) => {
           if (!dragging) return;
@@ -229,6 +577,7 @@
           renderFrame();
         });
 
+        renderDebuggerPanels();
         renderFrame();
         setInterval(() => {
           if (!autoSpin) return;

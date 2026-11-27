@@ -17,11 +17,13 @@
     .back-link { color: var(--muted); text-decoration: none; font-size: 0.82rem; border: 1px solid var(--border); padding: 4px 10px; border-radius: 6px; }
     .back-link:hover { color: var(--accent); border-color: var(--accent); }
     .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    button.ctrl, select.ctrl { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; font: inherit; font-size: 0.82rem; cursor: pointer; }
+    button.ctrl, select.ctrl, input.ctrl { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 0.8rem; cursor: pointer; }
     button.ctrl:hover { border-color: var(--accent); color: var(--accent); }
+    button.ctrl[data-active="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 700; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; }
     .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-    .panel h2 { margin: 0 0 10px; font-size: 0.9rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; }
+    .panel-wide { grid-column: 1 / -1; }
+    .panel h2 { margin: 0 0 10px; font-size: 0.9rem; color: var(--accent); text-transform: uppercase; letter-spacing: 0.05em; display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
     .led-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
     .led-lbl { width: 64px; font-size: 0.76rem; color: var(--muted); }
     .octal-val { width: 64px; font-weight: 700; color: var(--accent); }
@@ -41,8 +43,17 @@
     .slider-row { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 8px; }
     canvas { width: 100%; height: 190px; border-radius: 8px; border: 1px solid var(--border); display: block; background: rgba(0,0,0,0.28); }
     .wasi-badge { font-size: 0.76rem; color: var(--muted); margin-top: 8px; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
-    th, td { text-align: left; padding: 5px 4px; border-bottom: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); }
+    .tab-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .toolbar-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .disk-dump { background: rgba(0,0,0,0.42); border: 1px solid var(--border); border-radius: 6px; padding: 12px; max-height: 310px; overflow: auto; font-size: 0.76rem; line-height: 1.45; color: var(--fg); white-space: pre; }
+    .sb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .sb-card { border: 1px solid var(--border); border-radius: 6px; padding: 8px; background: rgba(0,0,0,0.22); }
+    .sb-k { font-size: 0.7rem; color: var(--muted); }
+    .sb-v { font-size: 0.88rem; font-weight: 700; color: var(--accent); margin-top: 2px; }
+    .split-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -50,13 +61,20 @@
     data-theme="phosphor-amber"
     data-abi-magic="0x31315044"
     data-abi-version="1"
-    data-v3-magic="0x33564742">
+    data-v3-magic="0x33564742"
+    data-disk-preset="v6-rk05">
     <div class="topbar">
       <div class="brand">
         <a class="back-link" href="../../">&larr; Demos Hub</a>
-        <span>DEC PDP-11/40 :: B8G-ABI TASK MANAGER COCKPIT</span>
+        <span>DEC PDP-11/40 :: B8G-ABI TASK MANAGER + RK05/RX01 DISK COCKPIT</span>
       </div>
       <div class="controls">
+        <select class="ctrl" data-action="disk-preset" aria-label="Disk Image Preset">
+          <option value="bare-metal">Bare-Metal TaskMgr</option>
+          <option value="v6-rk05" selected>Unix V6 RK05</option>
+          <option value="rsx11m-rx01">RSX-11M RX01</option>
+        </select>
+        <button type="button" class="ctrl" data-action="mount-preset">Mount &amp; Boot Preset</button>
         <button type="button" class="ctrl" data-action="step">Step</button>
         <button type="button" class="ctrl" data-action="run50">Run 50</button>
         <button type="button" class="ctrl" data-action="runall">Run Monitor</button>
@@ -118,15 +136,237 @@
           <label class="slider-row"><span>Processes</span><input type="range" min="1" max="250" value="48" data-slider="proc" /><span data-slider-val="proc">48</span></label>
         </div>
       </section>
+
+      <section class="panel panel-wide" data-disk-inspector>
+        <h2>
+          <span>RK05 / RX01 Disk &amp; Inode Inspector</span>
+          <span style="font-size:0.76rem;color:var(--muted);" data-mounted-summary>Mounted: UNIX-V6-RK05 (Magic 060606)</span>
+        </h2>
+        <div class="tab-bar">
+          <button type="button" class="ctrl" data-inspector-tab="dump" data-active="true">Disk Block Octal/Hex Dump</button>
+          <button type="button" class="ctrl" data-inspector-tab="inodes" data-active="false">Superblock &amp; Inodes</button>
+          <button type="button" class="ctrl" data-inspector-tab="mmu" data-active="false">MMU (KPAR/KPDR) &amp; Bus Trace</button>
+        </div>
+
+        <div data-tab-pane="dump">
+          <div class="toolbar-row">
+            <button type="button" class="ctrl" data-quick-block="0">Blk 0: Boot</button>
+            <button type="button" class="ctrl" data-quick-block="1">Blk 1: Superblock</button>
+            <button type="button" class="ctrl" data-quick-block="2">Blk 2: Inodes</button>
+            <button type="button" class="ctrl" data-quick-block="18">Blk 18: Root Dir / MFD</button>
+            <button type="button" class="ctrl" data-quick-block="21">Blk 21: Payload 1</button>
+            <button type="button" class="ctrl" data-quick-block="22">Blk 22: Payload 2</button>
+            <button type="button" class="ctrl" data-quick-block="23">Blk 23: Payload 3</button>
+            <label style="font-size:0.78rem;display:flex;align-items:center;gap:6px;">
+              Block #
+              <input class="ctrl" type="number" min="0" max="31" value="1" style="width:70px;" data-block-num />
+            </label>
+            <select class="ctrl" data-dump-radix aria-label="Dump Radix">
+              <option value="both" selected>Octal + Hex + ASCII</option>
+              <option value="octal">Octal Words + ASCII</option>
+              <option value="hex">Hex Words + ASCII</option>
+            </select>
+          </div>
+          <pre class="disk-dump" data-disk-dump></pre>
+        </div>
+
+        <div data-tab-pane="inodes" class="hidden">
+          <div class="sb-grid" data-sb-grid></div>
+          <div class="split-2">
+            <div>
+              <h2 style="margin-bottom:6px;">Inode / File Header Table (Block 2)</h2>
+              <table>
+                <thead><tr><th>Ino</th><th>Path / File</th><th>Mode</th><th>Size</th><th>Blocks</th><th>Inspect</th></tr></thead>
+                <tbody data-inode-body></tbody>
+              </table>
+            </div>
+            <div>
+              <h2 style="margin-bottom:6px;">Directory Entries (Blocks 18..20)</h2>
+              <table>
+                <thead><tr><th>Ino</th><th>Name</th><th>Resolved Path</th></tr></thead>
+                <tbody data-dir-body></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div data-tab-pane="mmu" class="hidden">
+          <div class="toolbar-row">
+            <button type="button" class="ctrl" data-action="toggle-mmu">Toggle MMU (MMR0)</button>
+            <span style="font-size:0.8rem;color:var(--muted);" data-mmu-status>MMR0=000001 (18-bit UNIBUS Relocation Active)</span>
+          </div>
+          <div class="split-2">
+            <div>
+              <h2 style="margin-bottom:6px;">Kernel APRs (KPAR0..KPAR7 / KPDR)</h2>
+              <table>
+                <thead><tr><th>APR</th><th>KPAR Addr</th><th>Base Click</th><th>KPDR</th><th>16-bit VA &rarr; 18-bit Phys</th></tr></thead>
+                <tbody data-mmu-body></tbody>
+              </table>
+            </div>
+            <div>
+              <h2 style="margin-bottom:6px;">Recent UNIBUS Instruction Cycles</h2>
+              <div style="max-height:260px;overflow-y:auto;">
+                <table>
+                  <thead><tr><th>Cycle</th><th>VA (PC)</th><th>Phys 18b</th><th>Opcode</th><th>Op</th></tr></thead>
+                  <tbody data-bus-body></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   </b8g-pdp11-taskmgr>
 
   <script type="module">
     const PSW_C = 1, PSW_V = 2, PSW_Z = 4, PSW_N = 8;
+    const BLOCK_BYTES = 512;
+    const BLOCK_COUNT = 32;
     const oct6 = (n) => ((n & 0xffff) >>> 0).toString(8).padStart(6, '0');
+    const oct18 = (n) => ((n & 0x3ffff) >>> 0).toString(8).padStart(6, '0');
 
-    // Clean-room PDP-11/40 Telemetry Monitor program (assembled at 001000)
-    // Reads MMIO 0177000..0177010, writes KL11 UART 0177566, updates 0177570 display, HALTs.
+    const w16le = (buf, off, v) => { buf[off] = v & 0xff; buf[off + 1] = (v >> 8) & 0xff; };
+    const r16le = (buf, off) => (buf[off] | (buf[off + 1] << 8)) & 0xffff;
+    const writeTxt = (buf, off, len, s) => {
+      buf.fill(0, off, off + len);
+      for (let i = 0; i < Math.min(len, s.length); i++) buf[off + i] = s.charCodeAt(i) & 0xff;
+    };
+    const readTxt = (buf, off, len) => {
+      let out = '';
+      for (let i = 0; i < len && buf[off + i] !== 0; i++) out += String.fromCharCode(buf[off + i]);
+      return out;
+    };
+
+    const DISK_SPECS = {
+      'bare-metal': {
+        presetId: 'bare-metal', label: 'B8G-TASKMGR', drive: 'MEMROM', magic: 0o031520,
+        volumeTotalBlocks: 32, inodeBlocks: 4, freeBlocks: [22,23,24,25,26,27,28,29,30,31],
+        freeInodes: [3,4,5,6,7,8],
+        bootBanner: 'B8G BARE-METAL ROM: ORIGIN 001000',
+        inodes: [
+          { ino: 1, path: '/', kind: 'dir', mode: 0o140755, nlink: 2, sizeBytes: 48, blocks: [18] },
+          { ino: 2, path: '/taskmgr.bin', kind: 'file', mode: 0o100755, nlink: 1, sizeBytes: 256, blocks: [21] },
+        ],
+        dirs: [{ blk: 18, prefix: '/', entries: [{ ino: 1, name: '.' }, { ino: 1, name: '..' }, { ino: 2, name: 'taskmgr.bin' }] }],
+        payloads: [{ blk: 21, text: 'B8G PDP-11/40 BARE-METAL TELEMETRY MONITOR ORIGIN 001000\n' }],
+      },
+      'v6-rk05': {
+        presetId: 'v6-rk05', label: 'UNIX-V6-RK05', drive: 'RK05', magic: 0o060606,
+        volumeTotalBlocks: 4872, inodeBlocks: 16, freeBlocks: [25,26,27,28,29,30,31],
+        freeInodes: [9,10,11,12,13,14,15,16],
+        bootBanner: 'UNIX V6 RK05 BOOT: /etc/init -> /bin/sh',
+        inodes: [
+          { ino: 1, path: '/', kind: 'dir', mode: 0o140755, nlink: 4, sizeBytes: 96, blocks: [18] },
+          { ino: 2, path: '/etc', kind: 'dir', mode: 0o140755, nlink: 2, sizeBytes: 48, blocks: [19] },
+          { ino: 3, path: '/etc/init', kind: 'file', mode: 0o100755, nlink: 1, sizeBytes: 192, blocks: [21] },
+          { ino: 4, path: '/bin', kind: 'dir', mode: 0o140755, nlink: 2, sizeBytes: 64, blocks: [20] },
+          { ino: 5, path: '/bin/sh', kind: 'file', mode: 0o100755, nlink: 1, sizeBytes: 256, blocks: [22] },
+          { ino: 6, path: '/dev', kind: 'dir', mode: 0o140755, nlink: 2, sizeBytes: 32, blocks: [18] },
+          { ino: 7, path: '/dev/kl11', kind: 'dev', mode: 0o120666, nlink: 1, sizeBytes: 0, blocks: [0o177564] },
+          { ino: 8, path: '/bin/taskmgr', kind: 'file', mode: 0o100755, nlink: 1, sizeBytes: 224, blocks: [23] },
+        ],
+        dirs: [
+          { blk: 18, prefix: '/', entries: [{ ino: 1, name: '.' }, { ino: 1, name: '..' }, { ino: 2, name: 'etc' }, { ino: 4, name: 'bin' }, { ino: 6, name: 'dev' }, { ino: 8, name: 'taskmgr' }] },
+          { blk: 19, prefix: '/etc', entries: [{ ino: 2, name: '.' }, { ino: 1, name: '..' }, { ino: 3, name: 'init' }] },
+          { blk: 20, prefix: '/bin', entries: [{ ino: 4, name: '.' }, { ino: 1, name: '..' }, { ino: 5, name: 'sh' }, { ino: 8, name: 'taskmgr' }] },
+        ],
+        payloads: [
+          { blk: 21, text: '; B8G CLEAN-ROOM /etc/init\nMOUNT RK05 / READONLY\nEXEC /bin/sh -c "/bin/taskmgr"\n' },
+          { blk: 22, text: '# /bin/sh clean-room script\nPATH=/bin:/etc\nexec /bin/taskmgr --mmio=0177000\n' },
+          { blk: 23, text: 'B8G_TASKMGR_V6::MMIO=0177000..0177010 KL11=0177566\n' },
+        ],
+      },
+      'rsx11m-rx01': {
+        presetId: 'rsx11m-rx01', label: 'RSX11M-RX01', drive: 'RX01', magic: 0o110011,
+        volumeTotalBlocks: 494, inodeBlocks: 16, freeBlocks: [25,26,27,28,29,30,31],
+        freeInodes: [7,8,9,10,11,12,13,14],
+        bootBanner: 'RSX-11M RX01: MCR> INS [1,54]TASKMGR.TSK',
+        inodes: [
+          { ino: 1, path: '[000000]000000.DIR;1', kind: 'dir', mode: 0o140755, nlink: 3, sizeBytes: 112, blocks: [18] },
+          { ino: 2, path: '[000000]INDEXF.SYS;1', kind: 'file', mode: 0o100644, nlink: 1, sizeBytes: 512, blocks: [2] },
+          { ino: 3, path: '[001054]MCR.TSK;1', kind: 'task', mode: 0o100755, nlink: 1, sizeBytes: 256, blocks: [21] },
+          { ino: 4, path: '[001054]TASKMGR.TSK;1', kind: 'task', mode: 0o100755, nlink: 1, sizeBytes: 320, blocks: [22] },
+          { ino: 5, path: '[001054]STARTUP.CMD;1', kind: 'file', mode: 0o100644, nlink: 1, sizeBytes: 128, blocks: [23] },
+          { ino: 6, path: '[001054]PIP.TSK;1', kind: 'task', mode: 0o100755, nlink: 1, sizeBytes: 192, blocks: [24] },
+        ],
+        dirs: [
+          { blk: 18, prefix: '[001054]', entries: [{ ino: 1, name: '.' }, { ino: 1, name: '..' }, { ino: 2, name: 'INDEXF.SYS;1' }, { ino: 3, name: 'MCR.TSK;1' }, { ino: 4, name: 'TASKMGR.TSK;1' }, { ino: 5, name: 'STARTUP.CMD;1' }, { ino: 6, name: 'PIP.TSK;1' }] },
+        ],
+        payloads: [
+          { blk: 21, text: '; B8G CLEAN-ROOM MCR.TSK\nMCR> ACT /TERM=TT0:\nMCR> RUN [1,54]TASKMGR.TSK\n' },
+          { blk: 22, text: 'RSX11M_TASK_HDR [TASKMGR.TSK] PAR=0172340 MMIO=0177000\n' },
+          { blk: 23, text: '; [1,54]STARTUP.CMD\nINS [1,54]TASKMGR.TSK\nRUN [1,54]TASKMGR.TSK\n' },
+          { blk: 24, text: 'PIP DY0:[1,54]*.TSK/LI\n' },
+        ],
+      },
+    };
+
+    function buildDiskImage(presetId) {
+      const spec = DISK_SPECS[presetId] || DISK_SPECS['v6-rk05'];
+      const bytes = new Uint8Array(BLOCK_COUNT * BLOCK_BYTES);
+      [0o012706, 0o000700, 0o012705, 0o001040, 0o000000].forEach((w, i) => w16le(bytes, i * 2, w));
+      writeTxt(bytes, 32, 96, spec.bootBanner);
+
+      const sb = BLOCK_BYTES;
+      w16le(bytes, sb + 0, spec.inodeBlocks);
+      w16le(bytes, sb + 2, spec.volumeTotalBlocks);
+      w16le(bytes, sb + 4, spec.freeBlocks.length);
+      spec.freeBlocks.forEach((b, i) => w16le(bytes, sb + 6 + i * 2, b));
+      w16le(bytes, sb + 206, spec.freeInodes.length);
+      spec.freeInodes.forEach((n, i) => w16le(bytes, sb + 208 + i * 2, n));
+      w16le(bytes, sb + 226, 0x6995);
+      w16le(bytes, sb + 228, 0x2026);
+      w16le(bytes, sb + 230, spec.magic);
+      writeTxt(bytes, sb + 240, 16, spec.label);
+      writeTxt(bytes, sb + 256, 16, spec.drive);
+
+      const inoOff = 2 * BLOCK_BYTES;
+      spec.inodes.forEach((node) => {
+        const o = inoOff + (node.ino - 1) * 32;
+        w16le(bytes, o, node.mode);
+        bytes[o + 2] = node.nlink;
+        w16le(bytes, o + 6, node.sizeBytes & 0xffff);
+        node.blocks.forEach((blk, idx) => w16le(bytes, o + 8 + idx * 2, blk));
+      });
+
+      const dirList = [];
+      spec.dirs.forEach((d) => {
+        const dOff = d.blk * BLOCK_BYTES;
+        d.entries.forEach((e, idx) => {
+          w16le(bytes, dOff + idx * 16, e.ino);
+          writeTxt(bytes, dOff + idx * 16 + 2, 14, e.name);
+          const sep = d.prefix.startsWith('/') && !d.prefix.endsWith('/') ? '/' : '';
+          dirList.push({ ino: e.ino, name: e.name, path: d.prefix + sep + e.name });
+        });
+      });
+
+      spec.payloads.forEach((p) => writeTxt(bytes, p.blk * BLOCK_BYTES, BLOCK_BYTES, p.text));
+      return { ...spec, bytes, dirList };
+    }
+
+    function formatBlockDump(bytes, blockNum, radix) {
+      const b = Math.max(0, Math.min(BLOCK_COUNT - 1, blockNum | 0));
+      const slice = bytes.subarray(b * BLOCK_BYTES, (b + 1) * BLOCK_BYTES);
+      const lines = ['BLK ' + oct6(b) + ' (' + b + ') :: 512 B (256 PDP-11 words)'];
+      for (let off = 0; off < BLOCK_BYTES; off += 16) {
+        const octW = [], hexW = [];
+        let ascii = '';
+        for (let i = 0; i < 16; i += 2) {
+          const w = r16le(slice, off + i);
+          octW.push(oct6(w));
+          hexW.push(w.toString(16).padStart(4, '0'));
+          for (let j = 0; j < 2; j++) {
+            const c = slice[off + i + j];
+            ascii += c >= 32 && c <= 126 ? String.fromCharCode(c) : '.';
+          }
+        }
+        if (radix === 'octal') lines.push(oct6(off) + ': ' + octW.join(' ') + ' | ' + ascii);
+        else if (radix === 'hex') lines.push(oct6(off) + ': ' + hexW.join(' ') + ' | ' + ascii);
+        else lines.push(oct6(off) + ': ' + octW.join(' ') + ' | ' + hexW.join(' ') + ' | ' + ascii);
+      }
+      return lines.join('\n');
+    }
+
     const DOP = { MOV:0o010000, MOVB:0o110000, CMP:0o020000, ADD:0o060000, SUB:0o160000 };
     const SOP = { INC:0o005200 };
     const BOP = { BR:0o000400, BEQ:0o001400, BLT:0o002400 };
@@ -163,9 +403,12 @@
       for (let i = 0; i < b.length; i += 2) w.push(b[i] | (b[i + 1] << 8));
       return w;
     }
-    function assembleMonitor() {
-      const src = [
-        'START:',
+    function assembleMonitor(bootBanner = '') {
+      const src = ['START:'];
+      if (bootBanner) {
+        src.push('MOV #S_BOOT, R5', 'JSR PC, PUTS', 'MOVB #15, @#177566', 'MOVB #12, @#177566');
+      }
+      src.push(
         'MOV #S_HDR, R5', 'JSR PC, PUTS', 'MOV @#177010, R0', 'JSR PC, PR3',
         'MOV #S_CPU, R5', 'JSR PC, PUTS', 'MOV @#177000, R0', 'JSR PC, PRDEC1',
         'MOV #S_MEM, R5', 'JSR PC, PUTS', 'MOV @#177002, R0', 'JSR PC, PRDEC1',
@@ -188,8 +431,9 @@
         'D10_2B:', 'CMP R0, #24', 'BLT D10_1', 'SUB #24, R0', 'ADD #2, R1',
         'D10_1:', 'CMP R0, #12', 'BLT D10_OUT', 'SUB #12, R0', 'INC R1',
         'D10_OUT:', 'MOVB R1, @#177566', 'RTS PC',
-        'S_HDR: .ASCIZ "PDP11 SEQ="', 'S_CPU: .ASCIZ " CPU="', 'S_MEM: .ASCIZ " MEM="', 'S_PROC: .ASCIZ " PROC="',
-      ];
+        'S_HDR: .ASCIZ "PDP11 SEQ="', 'S_CPU: .ASCIZ " CPU="', 'S_MEM: .ASCIZ " MEM="', 'S_PROC: .ASCIZ " PROC="'
+      );
+      if (bootBanner) src.push('S_BOOT: .ASCIZ "' + bootBanner.replace(/"/g, "'") + '"');
       const labels = {};
       let pc = 0o1000;
       for (const line of src) {
@@ -246,13 +490,15 @@
       return words;
     }
 
-    const MONITOR_WORDS = assembleMonitor();
-
     class BrowserPdp11 {
       constructor() {
         this.ram = new Uint8Array(65536);
         this.regs = new Uint16Array(8);
         this.mmio = new Uint16Array(8);
+        this.kpar = new Uint16Array(8);
+        this.kpdr = new Uint16Array(8);
+        this.busTrace = [];
+        this.mmr0 = 1;
         this.switchReg = 0o125252;
         this.displayReg = 0;
         this.psw = 0;
@@ -260,18 +506,34 @@
         this.cycles = 0;
         this.txText = '';
         this.seq = 1;
-        this.loadAndReset(350, 610, 48);
+        this.bootBanner = DISK_SPECS['v6-rk05'].bootBanner;
+        this.loadAndReset(350, 610, 48, this.bootBanner);
       }
-      loadAndReset(cpuX10, memX10, proc) {
+      initMmu() {
+        for (let i = 0; i < 7; i++) { this.kpar[i] = i * 0o200; this.kpdr[i] = 0o077406; }
+        this.kpar[7] = 0o007600;
+        this.kpdr[7] = 0o077406;
+      }
+      phys18(va) {
+        const v = va & 0xffff;
+        if ((this.mmr0 & 1) === 0) return v >= 0o160000 ? (0o760000 | (v & 0o017777)) : v;
+        const apr = (v >> 13) & 7;
+        return (((this.kpar[apr] & 0o7777) << 6) + (v & 0o017777)) & 0x3ffff;
+      }
+      loadAndReset(cpuX10, memX10, proc, banner = this.bootBanner) {
+        this.bootBanner = banner;
         this.ram.fill(0);
         this.regs.fill(0);
+        this.initMmu();
+        this.busTrace.length = 0;
         this.regs[6] = 0o700;
         this.regs[7] = 0o1000;
         this.psw = 0;
         this.halted = false;
         this.cycles = 0;
         this.displayReg = 0;
-        for (let i = 0; i < MONITOR_WORDS.length; i++) this.w16(0o1000 + i * 2, MONITOR_WORDS[i]);
+        const words = assembleMonitor(banner);
+        for (let i = 0; i < words.length; i++) this.w16(0o1000 + i * 2, words[i]);
         this.mmio[0] = cpuX10; this.mmio[1] = memX10; this.mmio[2] = proc; this.mmio[3] = 420; this.mmio[4] = this.seq;
       }
       r16(a) {
@@ -279,6 +541,7 @@
         if (e >= 0o177000 && e < 0o177020) return this.mmio[(e - 0o177000) >> 1];
         if (e === 0o177564) return 0x80;
         if (e === 0o177570) return this.switchReg;
+        if (e === 0o177572) return this.mmr0;
         return this.ram[e] | (this.ram[(e + 1) & 0xffff] << 8);
       }
       r8(a) {
@@ -291,6 +554,7 @@
         const val = v & 0xffff;
         if (e === 0o177566) { this.txText += String.fromCharCode(val & 0xff); return; }
         if (e === 0o177570) { this.displayReg = val; return; }
+        if (e === 0o177572) { this.mmr0 = val; return; }
         this.ram[e] = val & 0xff;
         this.ram[(e + 1) & 0xffff] = (val >> 8) & 0xff;
       }
@@ -329,8 +593,17 @@
       }
       step() {
         if (this.halted) return false;
+        const pc0 = this.regs[7];
         const op = this.fetch();
         this.cycles++;
+        if (this.busTrace.length >= 48) this.busTrace.shift();
+        this.busTrace.push({
+          cycle: this.cycles,
+          va: oct6(pc0),
+          pa: oct18(this.phys18(pc0)),
+          op: oct6(op),
+          kind: op === 0 ? 'HALT' : 'FETCH',
+        });
         if (op === 0) { this.halted = true; return false; }
         if ((op & 0xfff8) === 0o200) {
           const r = op & 7;
@@ -378,6 +651,12 @@
       connectedCallback() {
         this.setAttribute('data-hydrated', 'true');
         const vm = new BrowserPdp11();
+        let activePreset = 'v6-rk05';
+        let mountedDisk = buildDiskImage(activePreset);
+        let selectedBlock = 1;
+        let dumpRadix = 'both';
+        let activeTab = 'dump';
+
         const buildLeds = (stripName) => {
           const host = this.querySelector('[data-strip="' + stripName + '"]');
           if (!host) return;
@@ -419,14 +698,13 @@
           ctx.fillStyle = bg;
           ctx.fillRect(0, 0, w, h);
 
-          // Isometric PDP-11/70 Cabinet + LED rows + R0..R5 Telemetry Pillars
           ctx.fillStyle = '#1b1d24';
           ctx.fillRect(22, 24, 240, 128);
           ctx.fillStyle = '#9e1c52';
           ctx.fillRect(22, 24, 240, 14);
           ctx.fillStyle = '#f8fafc';
           ctx.font = 'bold 10px monospace';
-          ctx.fillText('DEC PDP-11/40 :: B8G-ABI', 30, 34);
+          ctx.fillText('DEC PDP-11/40 :: ' + mountedDisk.label, 30, 34);
 
           const pc = vm.regs[7];
           const dt = vm.displayReg || vm.regs[0];
@@ -442,7 +720,6 @@
             ctx.fillRect(x - 4, up ? 112 : 120, 8, up ? 18 : 12);
           }
 
-          // R0..R5 + CPU/MEM 3D isometric bars on right
           const bars = [
             { label: 'CPU', val: vm.mmio[0] / 1000, col: accent },
             { label: 'MEM', val: vm.mmio[1] / 1000, col: warn },
@@ -460,6 +737,79 @@
             ctx.font = '10px monospace';
             ctx.fillText(b.label, bx + 1, 198);
           });
+        };
+
+        const renderInspector = () => {
+          const sum = this.querySelector('[data-mounted-summary]');
+          if (sum) {
+            sum.textContent = 'Mounted: ' + mountedDisk.label + ' (' + mountedDisk.drive + ', Magic ' + oct6(mountedDisk.magic) + ')';
+          }
+          const dumpEl = this.querySelector('[data-disk-dump]');
+          if (dumpEl) dumpEl.textContent = formatBlockDump(mountedDisk.bytes, selectedBlock, dumpRadix);
+
+          const blkInp = this.querySelector('[data-block-num]');
+          if (blkInp) blkInp.value = String(selectedBlock);
+
+          const sbGrid = this.querySelector('[data-sb-grid]');
+          if (sbGrid) {
+            const cards = [
+              ['Volume Label', mountedDisk.label],
+              ['Drive Geometry', mountedDisk.drive + ' (512 B/blk)'],
+              ['Superblock Magic', oct6(mountedDisk.magic)],
+              ['Total Volume Blks', String(mountedDisk.volumeTotalBlocks)],
+              ['Inode Table Blks', String(mountedDisk.inodeBlocks)],
+              ['Free Blocks', mountedDisk.freeBlocks.join(', ')],
+            ];
+            sbGrid.innerHTML = cards.map(([k, v]) =>
+              '<div class="sb-card"><div class="sb-k">' + k + '</div><div class="sb-v">' + v + '</div></div>'
+            ).join('');
+          }
+
+          const inoBody = this.querySelector('[data-inode-body]');
+          if (inoBody) {
+            inoBody.innerHTML = mountedDisk.inodes.map((node) => {
+              const firstBlk = node.blocks[0] ?? 0;
+              const canJump = firstBlk < BLOCK_COUNT;
+              const jumpBtn = canJump
+                ? '<button type="button" class="ctrl" data-jump-block="' + firstBlk + '">Blk ' + firstBlk + '</button>'
+                : '<code>MMIO ' + oct6(firstBlk) + '</code>';
+              return '<tr><td>' + node.ino + '</td><td><code>' + node.path + '</code></td><td>' + oct6(node.mode) + '</td><td>' + node.sizeBytes + ' B</td><td>' + node.blocks.join(', ') + '</td><td>' + jumpBtn + '</td></tr>';
+            }).join('');
+            inoBody.querySelectorAll('[data-jump-block]').forEach((btn) => {
+              btn.addEventListener('click', () => {
+                selectedBlock = Number(btn.getAttribute('data-jump-block'));
+                selectTab('dump');
+                renderInspector();
+              });
+            });
+          }
+
+          const dirBody = this.querySelector('[data-dir-body]');
+          if (dirBody) {
+            dirBody.innerHTML = mountedDisk.dirList.map((e) =>
+              '<tr><td>' + e.ino + '</td><td><code>' + e.name + '</code></td><td><code>' + e.path + '</code></td></tr>'
+            ).join('');
+          }
+
+          const mmuSt = this.querySelector('[data-mmu-status]');
+          if (mmuSt) {
+            mmuSt.textContent = 'MMR0=' + oct6(vm.mmr0) + ((vm.mmr0 & 1) ? ' (18-bit UNIBUS Relocation Active)' : ' (Direct 16-bit Bypass)');
+          }
+          const mmuBody = this.querySelector('[data-mmu-body]');
+          if (mmuBody) {
+            mmuBody.innerHTML = Array.from({ length: 8 }, (_, apr) => {
+              const vaBase = apr << 13;
+              const paBase = vm.phys18(vaBase);
+              return '<tr><td>APR' + apr + '</td><td><code>' + oct6(0o172340 + apr * 2) + '</code></td><td><code>' + oct6(vm.kpar[apr]) + '</code></td><td><code>' + oct6(vm.kpdr[apr]) + '</code></td><td><code>' + oct6(vaBase) + ' &rarr; ' + oct18(paBase) + '</code></td></tr>';
+            }).join('');
+          }
+
+          const busBody = this.querySelector('[data-bus-body]');
+          if (busBody) {
+            busBody.innerHTML = vm.busTrace.slice(-18).reverse().map((row) =>
+              '<tr><td>' + row.cycle + '</td><td><code>' + row.va + '</code></td><td><code>' + row.pa + '</code></td><td><code>' + row.op + '</code></td><td>' + row.kind + '</td></tr>'
+            ).join('');
+          }
         };
 
         const render = () => {
@@ -486,12 +836,23 @@
             st.textContent = 'PSW=' + oct6(vm.psw) + ' · N=' + n + ' Z=' + z + ' V=' + v + ' C=' + c + ' · Cycles=' + vm.cycles + ' · Halted=' + vm.halted;
           }
           const u = this.querySelector('[data-uart]');
-          if (u) u.textContent = vm.txText || '(KL11 ready — click Run Monitor or Step)';
+          if (u) u.textContent = vm.txText || '(KL11 ready — click Run Monitor or Mount & Boot Preset)';
           this.querySelector('[data-mmio-cpu]').textContent = (vm.mmio[0] / 10).toFixed(1) + '%';
           this.querySelector('[data-mmio-mem]').textContent = (vm.mmio[1] / 10).toFixed(1) + '%';
           this.querySelector('[data-mmio-proc]').textContent = String(vm.mmio[2]);
           this.querySelector('[data-mmio-seq]').textContent = String(vm.mmio[4]);
           draw3dCockpit();
+          renderInspector();
+        };
+
+        const selectTab = (tab) => {
+          activeTab = tab;
+          this.querySelectorAll('[data-inspector-tab]').forEach((b) => {
+            b.setAttribute('data-active', b.getAttribute('data-inspector-tab') === tab ? 'true' : 'false');
+          });
+          this.querySelectorAll('[data-tab-pane]').forEach((p) => {
+            p.classList.toggle('hidden', p.getAttribute('data-tab-pane') !== tab);
+          });
         };
 
         const sampleFromSliders = (runFull) => {
@@ -502,25 +863,63 @@
           this.querySelector('[data-slider-val="mem"]').textContent = mem.toFixed(1) + '%';
           this.querySelector('[data-slider-val="proc"]').textContent = String(proc);
           vm.seq = (vm.seq % 999) + 1;
-          vm.loadAndReset(cpu * 10, mem * 10, proc);
-          if (runFull) { for (let i = 0; i < 400 && !vm.halted; i++) vm.step(); }
+          vm.loadAndReset(cpu * 10, mem * 10, proc, mountedDisk.bootBanner);
+          if (runFull) { for (let i = 0; i < 900 && !vm.halted; i++) vm.step(); }
           render();
         };
 
+        const mountPreset = (presetId) => {
+          activePreset = presetId;
+          this.setAttribute('data-disk-preset', presetId);
+          mountedDisk = buildDiskImage(presetId);
+          vm.mmr0 = presetId === 'bare-metal' ? 0 : 1;
+          vm.txText = '';
+          sampleFromSliders(true);
+        };
+
+        this.querySelector('[data-action="disk-preset"]')?.addEventListener('change', (ev) => {
+          if (ev.target?.value) mountPreset(ev.target.value);
+        });
+        this.querySelector('[data-action="mount-preset"]')?.addEventListener('click', () => {
+          const sel = this.querySelector('[data-action="disk-preset"]');
+          mountPreset(sel?.value || activePreset);
+        });
         this.querySelector('[data-action="step"]')?.addEventListener('click', () => { vm.step(); render(); });
         this.querySelector('[data-action="run50"]')?.addEventListener('click', () => { for (let i = 0; i < 50 && !vm.halted; i++) vm.step(); render(); });
-        this.querySelector('[data-action="runall"]')?.addEventListener('click', () => { for (let i = 0; i < 400 && !vm.halted; i++) vm.step(); render(); });
+        this.querySelector('[data-action="runall"]')?.addEventListener('click', () => { for (let i = 0; i < 900 && !vm.halted; i++) vm.step(); render(); });
         this.querySelector('[data-action="reset"]')?.addEventListener('click', () => { vm.txText = ''; sampleFromSliders(true); });
         this.querySelector('[data-action="theme"]')?.addEventListener('change', (ev) => {
           if (ev.target?.value) { this.setAttribute('data-theme', ev.target.value); render(); }
         });
+        this.querySelector('[data-action="toggle-mmu"]')?.addEventListener('click', () => {
+          vm.mmr0 ^= 1;
+          render();
+        });
         this.querySelectorAll('[data-slider]').forEach((inp) => inp.addEventListener('input', () => sampleFromSliders(true)));
+        this.querySelectorAll('[data-inspector-tab]').forEach((btn) => {
+          btn.addEventListener('click', () => selectTab(btn.getAttribute('data-inspector-tab')));
+        });
+        this.querySelectorAll('[data-quick-block]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            selectedBlock = Number(btn.getAttribute('data-quick-block'));
+            renderInspector();
+          });
+        });
+        this.querySelector('[data-block-num]')?.addEventListener('input', (ev) => {
+          const v = Number(ev.target.value);
+          if (Number.isFinite(v)) {
+            selectedBlock = Math.max(0, Math.min(BLOCK_COUNT - 1, Math.trunc(v)));
+            renderInspector();
+          }
+        });
+        this.querySelector('[data-dump-radix]')?.addEventListener('change', (ev) => {
+          dumpRadix = ev.target.value;
+          renderInspector();
+        });
 
-        // Run initial monitor boot telemetry so KL11 shows output immediately
-        for (let i = 0; i < 400 && !vm.halted; i++) vm.step();
+        for (let i = 0; i < 900 && !vm.halted; i++) vm.step();
         render();
 
-        // Validate bundled b8g-pdp11.wasm WASI reactor module
         fetch('./b8g-pdp11.wasm')
           .then((r) => r.ok ? r.arrayBuffer() : Promise.reject(new Error('HTTP ' + r.status)))
           .then((buf) => WebAssembly.compile(buf))
