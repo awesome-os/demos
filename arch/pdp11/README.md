@@ -1,3 +1,5 @@
+<!-- DOC-STATIC-CORPUS -->
+
 # B8G PDP-11/40 Hardware-Emulated Architecture Demo (`arch/pdp11`)
 
 > **Clean-Room BSD-3-Clause DEC PDP-11/40 CPU, UNIBUS MMIO, MMU & RK05/RX01 Disk Inspector** with `<b8g-pdp11-taskmgr>` interactive front-panel blinkenlights, KL11 serial UART (`0177564`/`0177566`), Task Manager MMIO (`0177000..0177010`), selectable **Unix V6 (`v6-rk05`)** & **RSX-11M (`rsx11m-rx01`)** disk presets, and compiled `wasm32-wasi` reactor (`b8g-pdp11.wasm`).

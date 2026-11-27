@@ -1,3 +1,5 @@
+<!-- DOC-STATIC-CORPUS -->
+
 # Awesome-OS Architecture Demos (`awesome-os/demos`)
 
 > **Sparse `--no-cone` Monorepo of Self-Contained Awesome-OS Interactive Demos** — BSD-3-Clause licensed, zero external runtime dependencies, direct ES module + HTML5 `<b8g-*>` Web Components, and compiled `wasm32-wasi` reactor support.
