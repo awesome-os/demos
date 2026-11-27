@@ -22,6 +22,7 @@
     "codeowners": true,
     "noBrokenBadges": true,
     "noWorkflowBloat": true,
-    "maxWorkflowLines": 120
+    "maxWorkflowLines": 120,
+    "requireWorkflowHardening": true
   }
 }

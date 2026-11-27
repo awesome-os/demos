@@ -123,6 +123,10 @@ describe('awesome-os/demos sparse no-cone monorepo', () => {
       const html = fs.readFileSync(fullPath, 'utf8');
       assert.ok(html.startsWith('<!doctype html>'), `${spec.rel} must start with <!doctype html>`);
       assert.ok(html.includes(spec.tag), `${spec.rel} must include ${spec.tag}`);
+      assert.ok(
+        html.includes('<link rel="icon" href="data:image/svg+xml,'),
+        `${spec.rel} must include embedded data:image/svg+xml <link rel="icon"> tag`,
+      );
       assert.ok(html.includes('<script type="module">'), `${spec.rel} must include inline ES module`);
       for (const marker of spec.markers) {
         assert.ok(html.includes(marker), `${spec.rel} must include UI marker "${marker}"`);
