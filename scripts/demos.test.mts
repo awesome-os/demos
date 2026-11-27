@@ -70,12 +70,26 @@ describe('awesome-os/demos sparse no-cone monorepo', () => {
     assert.equal(allPlan.targets.length, 3);
   });
 
-  it('contains self-contained HTML5 Web Component demos with zero commercial domains or local HTTP IPC', () => {
-    const htmlSpecs: readonly { rel: string; tag: string; markers: readonly string[] }[] = [
-      { rel: 'index.html', tag: '<b8g-demo-hub', markers: ['data-sparse-tab', 'data-sparse-cmd'] },
+  it('contains self-contained HTML5 Web Component demos with brand tokens and zero commercial domains or local HTTP IPC', () => {
+    const htmlSpecs: readonly {
+      rel: string;
+      tag: string;
+      brandId: string;
+      tokenIds: readonly string[];
+      markers: readonly string[];
+    }[] = [
+      {
+        rel: 'index.html',
+        tag: '<b8g-demo-hub',
+        brandId: 'demos',
+        tokenIds: ['demos', 'b8g-pdp11', 'b8g-task-manager', 'b8g-graphics'],
+        markers: ['data-sparse-tab', 'data-sparse-cmd', 'data-brand-icon="demos"'],
+      },
       {
         rel: 'arch/pdp11/index.html',
         tag: '<b8g-pdp11-taskmgr',
+        brandId: 'b8g-pdp11',
+        tokenIds: ['b8g-pdp11', 'b8g-task-manager'],
         markers: [
           'data-disk-preset',
           'v6-rk05',
@@ -89,10 +103,18 @@ describe('awesome-os/demos sparse no-cone monorepo', () => {
           'MMR0',
         ],
       },
-      { rel: 'arch/task-manager/index.html', tag: '<b8g-task-manager', markers: ['data-3d-canvas', 'data-sensor-body'] },
+      {
+        rel: 'arch/task-manager/index.html',
+        tag: '<b8g-task-manager',
+        brandId: 'b8g-task-manager',
+        tokenIds: ['b8g-task-manager'],
+        markers: ['data-3d-canvas', 'data-sensor-body'],
+      },
       {
         rel: 'arch/graphics/index.html',
         tag: '<b8g-graphics-demo',
+        brandId: 'b8g-graphics',
+        tokenIds: ['b8g-graphics'],
         markers: [
           'data-overlay-btn',
           'final-composite',
@@ -124,9 +146,35 @@ describe('awesome-os/demos sparse no-cone monorepo', () => {
       assert.ok(html.startsWith('<!doctype html>'), `${spec.rel} must start with <!doctype html>`);
       assert.ok(html.includes(spec.tag), `${spec.rel} must include ${spec.tag}`);
       assert.ok(
+        html.includes(`data-brand-id="${spec.brandId}"`),
+        `${spec.rel} must include data-brand-id="${spec.brandId}"`,
+      );
+      assert.ok(
         html.includes('<link rel="icon" href="data:image/svg+xml,'),
         `${spec.rel} must include embedded data:image/svg+xml <link rel="icon"> tag`,
       );
+      for (const tokenId of spec.tokenIds) {
+        assert.ok(
+          html.includes(`--b8g-icon-${tokenId}: url("data:image/svg+xml,`),
+          `${spec.rel} must define --b8g-icon-${tokenId} CSS custom property`,
+        );
+        assert.ok(
+          html.includes(`--b8g-accent-${tokenId}: #`),
+          `${spec.rel} must define --b8g-accent-${tokenId} CSS custom property`,
+        );
+        assert.ok(
+          html.includes(`--b8g-secondary-${tokenId}: #`),
+          `${spec.rel} must define --b8g-secondary-${tokenId} CSS custom property`,
+        );
+        assert.ok(
+          html.includes(`var(--b8g-icon-${tokenId})`),
+          `${spec.rel} must bind var(--b8g-icon-${tokenId}) in component badge styles`,
+        );
+        assert.ok(
+          html.includes(`data-brand-icon="${tokenId}"`),
+          `${spec.rel} must render component brand badge data-brand-icon="${tokenId}"`,
+        );
+      }
       assert.ok(html.includes('<script type="module">'), `${spec.rel} must include inline ES module`);
       for (const marker of spec.markers) {
         assert.ok(html.includes(marker), `${spec.rel} must include UI marker "${marker}"`);
